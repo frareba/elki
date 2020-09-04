@@ -20,9 +20,9 @@
  */
 package elki.evaluation.scores.adapter;
 
-import elki.database.ids.DBIDRef;
+import elki.database.ids.DBIDs;
 import elki.database.ids.DoubleDBIDListIter;
-import elki.evaluation.scores.ScoreEvaluation.ScoreIter;
+import elki.evaluation.scores.ScoreEvaluation;
 
 /**
  * This adapter is used to process a list of (double, DBID) objects. The list
@@ -34,11 +34,21 @@ import elki.evaluation.scores.ScoreEvaluation.ScoreIter;
  * 
  * @composed - - - DoubleDBIDListIter
  */
-public class DistanceResultAdapter implements ScoreIter, DBIDRefIter {
+public class DistanceResultAdapter implements ScoreEvaluation.Adapter {
   /**
-   * Original Iterator
+   * Set of positive examples.
+   */
+  private DBIDs set;
+
+  /**
+   * Original iterator
    */
   protected DoubleDBIDListIter iter;
+
+  /**
+   * Number of IDs
+   */
+  private int size;
 
   /**
    * Distance of previous.
@@ -48,11 +58,15 @@ public class DistanceResultAdapter implements ScoreIter, DBIDRefIter {
   /**
    * Constructor
    * 
+   * @param set Set of positive examples
    * @param iter Iterator for distance results
+   * @param size Number of IDs
    */
-  public DistanceResultAdapter(DoubleDBIDListIter iter) {
+  public DistanceResultAdapter(DBIDs set, DoubleDBIDListIter iter, int size) {
     super();
+    this.set = set;
     this.iter = iter;
+    this.size = size;
   }
 
   @Override
@@ -68,24 +82,22 @@ public class DistanceResultAdapter implements ScoreIter, DBIDRefIter {
   }
 
   @Override
-  public DBIDRef getRef() {
-    return iter;
-  }
-
-  @Override
   public boolean tiedToPrevious() {
     return iter.doubleValue() == prevDist;
   }
 
-  @Deprecated
   @Override
-  public int hashCode() {
-    return super.hashCode();
+  public int numPositive() {
+    return set.size();
   }
 
-  @Deprecated
   @Override
-  public boolean equals(Object obj) {
-    return super.equals(obj);
+  public int numTotal() {
+    return size;
+  }
+
+  @Override
+  public boolean test() {
+    return set.contains(iter);
   }
 }

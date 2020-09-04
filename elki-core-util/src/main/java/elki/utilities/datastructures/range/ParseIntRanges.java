@@ -35,13 +35,23 @@ import elki.utilities.io.ParseUtil;
  */
 public class ParseIntRanges {
   /**
+   * Utility class, do not instantiate.
+   */
+  private ParseIntRanges() {
+    // Utility class
+  }
+
+  /**
    * Parse integer ranges, in different syntaxes.
    *
    * <code>
+   * 1
    * 1,2,3,...,10
    * 1,3,,10
    * 1,3,..,10
    * 1,3,...,10
+   * 1,+,5
+   * 1,++,5
    * 1,+=2,10
    * 1,*=2,16
    * 1,2,3,4,..,10,100
@@ -60,9 +70,10 @@ public class ParseIntRanges {
       // Find next comma:
       next = nextSep(str, pos);
       // Syntaxes involving ",," or ",..," or ",...," equivalently:
-      if(next == pos || (str.charAt(pos) == '.' && //
+      final char nextc = pos < next ? str.charAt(pos) : '\0';
+      if(next == pos || nextc == '.' && //
           ((next - pos == 2 && str.charAt(pos + 1) == '.') //
-              || (next - pos == 3 && str.charAt(pos + 1) == '.' && str.charAt(pos + 2) == '.')))) {
+              || (next - pos == 3 && str.charAt(pos + 1) == '.' && str.charAt(pos + 2) == '.'))) {
         if(ints.size() == 0 || next == str.length()) {
           throw new NumberFormatException("Not a valid integer range.");
         }
@@ -98,13 +109,15 @@ public class ParseIntRanges {
         generators.add(new LinearIntGenerator(start, step, last));
         ints.clear();
       }
-      // Explicit syntax: 0,+=4,16
-      else if(next - pos > 2 && str.charAt(pos) == '+' && str.charAt(pos + 1) == '=') {
+      // Explicit syntax: 0,+,3; 0,++,3; 0,+=4,16
+      else if(nextc == '+' && //
+          (next - pos == 1 || (next - pos == 2 && str.charAt(pos + 1) == '+') || //
+              (next - pos > 2 && str.charAt(pos + 1) == '='))) {
         if(ints.size() == 0 || next == str.length()) {
           throw new NumberFormatException("Not a valid integer range.");
         }
         int start = ints.get(ints.size() - 1); //
-        int step = ParseUtil.parseIntBase10(str, pos + 2, next);
+        int step = pos + 2 < next ? ParseUtil.parseIntBase10(str, pos + 2, next) : 1;
         ints.remove(ints.size() - 1, 1);
         // Remove additional static entries if step size is consistent:
         while(!ints.isEmpty() && ints.get(ints.size() - 1) == start - step) {
@@ -121,8 +134,8 @@ public class ParseIntRanges {
         generators.add(new LinearIntGenerator(start, step, last));
         ints.clear();
       }
-      // Explicit syntax: 0,+=4,16
-      else if(next - pos > 2 && str.charAt(pos) == '*' && str.charAt(pos + 1) == '=') {
+      // Explicit syntax: 0,*=4,16
+      else if(nextc == '*' && next - pos > 2 && str.charAt(pos + 1) == '=') {
         if(ints.size() == 0 || next == str.length()) {
           throw new NumberFormatException("Not a valid integer range.");
         }
@@ -158,7 +171,7 @@ public class ParseIntRanges {
 
   /**
    * Find the next separator.
-   *
+   * <p>
    * TODO: allow other separators, too?
    *
    * @param str String
@@ -169,5 +182,4 @@ public class ParseIntRanges {
     int next = str.indexOf(',', start);
     return next == -1 ? str.length() : next;
   }
-
 }

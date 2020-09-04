@@ -24,9 +24,11 @@ import org.apache.batik.util.SVGConstants;
 import org.w3c.dom.Element;
 
 import elki.evaluation.outlier.OutlierPrecisionRecallCurve;
-import elki.evaluation.outlier.OutlierPrecisionRecallCurve.PRCurve;
+import elki.evaluation.outlier.OutlierPrecisionRecallGainCurve;
 import elki.evaluation.outlier.OutlierROCCurve;
-import elki.evaluation.outlier.OutlierROCCurve.ROCResult;
+import elki.evaluation.scores.AUPRCEvaluation.PRCurve;
+import elki.evaluation.scores.PRGCEvaluation.PRGCurve;
+import elki.evaluation.scores.ROCEvaluation.ROCurve;
 import elki.logging.LoggingUtil;
 import elki.math.geometry.XYCurve;
 import elki.math.scales.LinearScale;
@@ -94,14 +96,32 @@ public class XYCurveVisualization implements VisFactory {
     SVGUtil.setAtt(layer, SVGConstants.SVG_TRANSFORM_ATTRIBUTE, transform);
 
     // determine scaling
-    LinearScale scalex = new LinearScale(curve.getMinx(), curve.getMaxx());
-    LinearScale scaley = new LinearScale(curve.getMiny(), curve.getMaxy());
+    LinearScale scalex = new LinearScale(curve.getMindx(), curve.getMaxdx());
+    LinearScale scaley = new LinearScale(curve.getMindy(), curve.getMaxdy());
     // plot the line
     SVGPath path = new SVGPath();
-    for(XYCurve.Itr iterator = curve.iterator(); iterator.valid(); iterator.advance()) {
-      final double x = scalex.getScaled(iterator.getX());
-      final double y = 1 - scaley.getScaled(iterator.getY());
-      path.drawTo(sizex * x, sizey * y);
+
+    // Variables for draw bounding box crossings
+    // initialize values according to first point to ensure correct handling
+    XYCurve.Itr iterator = curve.iterator();
+    double preX = iterator.getX(), preY = iterator.getY();
+    boolean preinbounds = curve.isInDrawingBounds(preX, preY);
+    if(preinbounds) {
+      path.moveTo(sizex * scalex.getScaled(preX), sizey * (1 - scaley.getScaled(preY)));
+    }
+    // build curve
+    for(; iterator.valid(); iterator.advance()) {
+      final double ix = iterator.getX(), iy = iterator.getY();
+      boolean inbounds = curve.isInDrawingBounds(ix, iy);
+      if(!preinbounds || !inbounds) {
+        clipDraw(path, curve, preX, preY, ix, iy, scalex, scaley, sizex, sizey);
+      }
+      if(inbounds) {
+        path.drawTo(sizex * scalex.getScaled(ix), sizey * (1 - scaley.getScaled(iy)));
+      }
+      preinbounds = inbounds;
+      preX = ix;
+      preY = iy;
     }
     Element line = path.makeElement(plot, SERIESID);
 
@@ -125,10 +145,10 @@ public class XYCurveVisualization implements VisFactory {
     }
 
     // Add AUC value when found
-    if(curve instanceof ROCResult) {
-      double rocauc = ((ROCResult) curve).getAUC();
-      String lt = OutlierROCCurve.ROCAUC_LABEL + ": " + FormatUtil.NF.format(rocauc);
-      if(rocauc <= 0.5) {
+    if(curve instanceof ROCurve) {
+      double auroc = ((ROCurve) curve).getAUC();
+      String lt = OutlierROCCurve.AUROC_LABEL + ": " + FormatUtil.NF.format(auroc);
+      if(auroc <= 0.5) {
         Element auclbl = plot.svgText(sizex * 0.5, sizey * 0.10, lt);
         SVGUtil.setCSSClass(auclbl, CSS_AXIS_LABEL);
         layer.appendChild(auclbl);
@@ -140,9 +160,23 @@ public class XYCurveVisualization implements VisFactory {
       }
     }
     if(curve instanceof PRCurve) {
-      double prauc = ((PRCurve) curve).getAUC();
-      String lt = OutlierPrecisionRecallCurve.PRAUC_LABEL + ": " + FormatUtil.NF.format(prauc);
-      if(prauc <= 0.5) {
+      double auprc = ((PRCurve) curve).getAUC();
+      String lt = OutlierPrecisionRecallCurve.PRAUC_LABEL + ": " + FormatUtil.NF.format(auprc);
+      if(auprc <= 0.5) {
+        Element auclbl = plot.svgText(sizex * 0.5, sizey * 0.10, lt);
+        SVGUtil.setCSSClass(auclbl, CSS_AXIS_LABEL);
+        layer.appendChild(auclbl);
+      }
+      else {
+        Element auclbl = plot.svgText(sizex * 0.5, sizey * 0.95, lt);
+        SVGUtil.setCSSClass(auclbl, CSS_AXIS_LABEL);
+        layer.appendChild(auclbl);
+      }
+    }
+    if(curve instanceof PRGCurve) {
+      double auprgc = ((PRGCurve) curve).getAUC();
+      String lt = OutlierPrecisionRecallGainCurve.AUPRGC_LABEL + ": " + FormatUtil.NF.format(auprgc);
+      if(auprgc <= 0.5) {
         Element auclbl = plot.svgText(sizex * 0.5, sizey * 0.10, lt);
         SVGUtil.setCSSClass(auclbl, CSS_AXIS_LABEL);
         layer.appendChild(auclbl);
@@ -156,6 +190,67 @@ public class XYCurveVisualization implements VisFactory {
 
     layer.appendChild(line);
     return new StaticVisualizationInstance(context, task, plot, width, height, layer);
+  }
+
+  /**
+   * Clipped drawing function for an edge.
+   * 
+   * @param path Path object to draw to
+   * @param curve Curve object to draw (for drawing bounds)
+   * @param preX starting x coordinate of the edge
+   * @param preY starting y coordinate of the edge
+   * @param x ending x coordinate of the edge
+   * @param y ending y coordinate of the edge
+   * @param scalex x-scale factor of the plot
+   * @param scaley y-scale factor of the plot
+   * @param sizex x-size of the plot
+   * @param sizey y-size of the plot
+   */
+  private void clipDraw(SVGPath path, XYCurve curve, double preX, double preY, double x, double y, LinearScale scalex, LinearScale scaley, double sizex, double sizey) {
+    final double minx = curve.getMindx(), maxx = curve.getMaxdx();
+    final double miny = curve.getMindy(), maxy = curve.getMaxdy();
+    if((x < minx && preX < minx) || (x > maxx && preX > maxx) || //
+        (y < miny && preY < miny) || (y > maxy && preY > maxy)) {
+      return; // Completely out of bounds
+    }
+    // Incoming
+    {
+      double tx = preX, ty = preY;
+      tx = preX < x && preX < minx ? minx : tx;
+      tx = preX > x && preX > maxx ? maxx : tx;
+      ty = preY < y && preY < miny ? miny : ty;
+      ty = preY > y && preY > maxy ? maxy : ty;
+      if(tx != preX || ty != preY) {
+        final double fx = x != preX ? (tx - preX) / (x - preX) : 0;
+        final double fy = y != preY ? (ty - preY) / (y - preY) : 0;
+        if(fx < fy) {
+          tx = preX + fy * (x - preX);
+        }
+        else {
+          ty = preY + fx * (y - preY);
+        }
+        path.moveTo(sizex * scalex.getScaled(tx), sizey * (1 - scaley.getScaled(ty)));
+      }
+    }
+    // Outgoing: destination is not in bounds
+    {
+      double tx = x, ty = y;
+      tx = preX < x && x > maxx ? maxx : tx;
+      tx = preX > x && x < minx ? minx : tx;
+      ty = preY < y && y > maxy ? maxy : ty;
+      ty = preY > y && y < miny ? miny : ty;
+      if(tx != x || ty != y) {
+        final double fx = x != preX ? (tx - preX) / (x - preX) : 1;
+        final double fy = y != preY ? (ty - preY) / (y - preY) : 1;
+        if(fx > fy) {
+          tx = preX + fy * (x - preX);
+        }
+        else {
+          ty = preY + fx * (y - preY);
+        }
+        path.drawTo(sizex * scalex.getScaled(tx), sizey * (1 - scaley.getScaled(ty)));
+      }
+    }
   }
 
   /**

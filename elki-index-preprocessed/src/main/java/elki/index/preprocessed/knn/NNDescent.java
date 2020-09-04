@@ -55,6 +55,8 @@ import elki.utilities.random.RandomFactory;
  * Efficient k-nearest neighbor graph construction for generic similarity
  * measures<br>
  * Proc. 20th Int. Conf. on World Wide Web (WWW'11)
+ * <p>
+ * TODO: collect and log some query statistics.
  *
  * @author Evelyn Kirner
  * @since 0.7.5
@@ -197,7 +199,7 @@ public class NNDescent<O> extends AbstractMaterializeKNNPreprocessor<O> {
         HashSetModifiableDBIDs newNeighbors = flag.get(iditer);
         HashSetModifiableDBIDs oldNeighbors = DBIDUtil.newHashSet();
         KNNHeap heap = store.get(iditer);
-        for(DoubleDBIDListIter heapiter = heap.unorderedIterator(); heapiter.valid(); heapiter.advance()) {
+        for(DoubleDBIDIter heapiter = heap.unorderedIterator(); heapiter.valid(); heapiter.advance()) {
           if(!newNeighbors.contains(heapiter)) {
             oldNeighbors.add(heapiter);
           }
@@ -253,7 +255,7 @@ public class NNDescent<O> extends AbstractMaterializeKNNPreprocessor<O> {
       // Add query point and convert heap to list:
       KNNHeap heap = store.get(iditer);
       tempHeap.insert(0, iditer);
-      for(DoubleDBIDListIter heapiter = heap.unorderedIterator(); heapiter.valid(); heapiter.advance()) {
+      for(DoubleDBIDIter heapiter = heap.unorderedIterator(); heapiter.valid(); heapiter.advance()) {
         tempHeap.insert(heapiter.doubleValue(), heapiter);
       }
       storage.put(iditer, tempHeap.toKNNList());
@@ -285,8 +287,7 @@ public class NNDescent<O> extends AbstractMaterializeKNNPreprocessor<O> {
   private void boundSize(HashSetModifiableDBIDs set, int items) {
     if(set.size() > items) {
       DBIDs sample = DBIDUtil.randomSample(set, items, rnd);
-      set.clear();
-      set.addDBIDs(sample);
+      set.clear().addDBIDs(sample);
     }
   }
 
@@ -422,9 +423,8 @@ public class NNDescent<O> extends AbstractMaterializeKNNPreprocessor<O> {
     for(DBIDIter iditer = ids.iter(); iditer.valid(); iditer.advance()) {
       KNNHeap realNeighbors = store.get(iditer);
       HashSetModifiableDBIDs newNeighbors = newNeighborHash.get(iditer);
-      HashSetModifiableDBIDs realNewNeighbors = sampleNewNeighbors.get(iditer);
-      realNewNeighbors.clear(); // Reuse
-      for(DoubleDBIDListIter heapiter = realNeighbors.unorderedIterator(); heapiter.valid(); heapiter.advance()) {
+      HashSetModifiableDBIDs realNewNeighbors = sampleNewNeighbors.get(iditer).clear(); // Reuse
+      for(DoubleDBIDIter heapiter = realNeighbors.unorderedIterator(); heapiter.valid(); heapiter.advance()) {
         if(newNeighbors.contains(heapiter)) {
           realNewNeighbors.add(heapiter);
           t++;
@@ -449,7 +449,7 @@ public class NNDescent<O> extends AbstractMaterializeKNNPreprocessor<O> {
     for(DBIDIter iditer = relation.iterDBIDs(); iditer.valid(); iditer.advance()) {
       KNNHeap heap = store.get(iditer);
       HashSetDBIDs newNeighbors = sampleNewHash.get(iditer);
-      for(DoubleDBIDListIter heapiter = heap.unorderedIterator(); heapiter.valid(); heapiter.advance()) {
+      for(DoubleDBIDIter heapiter = heap.unorderedIterator(); heapiter.valid(); heapiter.advance()) {
         (newNeighbors.contains(heapiter) ? newReverseNeighbors : oldReverseNeighbors).get(heapiter).add(iditer);
       }
     }
@@ -458,21 +458,6 @@ public class NNDescent<O> extends AbstractMaterializeKNNPreprocessor<O> {
   @Override
   protected Logging getLogger() {
     return LOG;
-  }
-
-  @Override
-  public void logStatistics() {
-    // TODO
-  }
-
-  @Override
-  public String getLongName() {
-    return "NNDescent kNN";
-  }
-
-  @Override
-  public String getShortName() {
-    return "nn-descent-knn";
   }
 
   @Override

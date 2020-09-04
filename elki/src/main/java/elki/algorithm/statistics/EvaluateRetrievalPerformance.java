@@ -143,21 +143,21 @@ public class EvaluateRetrievalPerformance<O> implements Algorithm {
     Object2IntOpenHashMap<Object> counters = new Object2IntOpenHashMap<>();
 
     // Statistics tracking
-    double map = 0., mroc = 0.;
+    double map = 0., mauroc = 0.;
     double[] knnperf = new double[maxk];
     int samples = 0;
 
     FiniteProgress objloop = LOG.isVerbose() ? new FiniteProgress("Processing query objects", ids.size(), LOG) : null;
     for(DBIDIter iter = ids.iter(); iter.valid(); iter.advance()) {
       Object label = lrelation.get(iter);
-      findMatches(posn, lrelation, label);
+      findMatches(posn.clear(), lrelation, label);
       if(posn.size() > 0) {
         computeDistances(nlist, iter, distQuery, relation);
         if(nlist.size() != relation.size() - (includeSelf ? 0 : 1)) {
           LOG.warning("Neighbor list does not have the desired size: " + nlist.size());
         }
         map += AveragePrecisionEvaluation.STATIC.evaluate(posn, nlist);
-        mroc += ROCEvaluation.STATIC.evaluate(posn, nlist);
+        mauroc += ROCEvaluation.STATIC.evaluate(posn, nlist);
         KNNEvaluator.STATIC.evaluateKNN(knnperf, nlist, lrelation, counters, label);
         samples += 1;
       }
@@ -167,21 +167,21 @@ public class EvaluateRetrievalPerformance<O> implements Algorithm {
     if(samples < 1) {
       throw new AbortException("No object matched - are labels parsed correctly?");
     }
-    if(!(map >= 0) || !(mroc >= 0)) {
+    if(!(map >= 0) || !(mauroc >= 0)) {
       throw new AbortException("NaN in MAP/ROC.");
     }
 
     map /= samples;
-    mroc /= samples;
+    mauroc /= samples;
     LOG.statistics(new DoubleStatistic(PREFIX + ".map", map));
-    LOG.statistics(new DoubleStatistic(PREFIX + ".rocauc", mroc));
+    LOG.statistics(new DoubleStatistic(PREFIX + ".auroc", mauroc));
     LOG.statistics(new DoubleStatistic(PREFIX + ".samples", samples));
     for(int k = 0; k < maxk; k++) {
       knnperf[k] = knnperf[k] / samples;
       LOG.statistics(new DoubleStatistic(PREFIX + ".knn-" + (k + 1), knnperf[k]));
     }
 
-    return new RetrievalPerformanceResult(samples, map, mroc, knnperf);
+    return new RetrievalPerformanceResult(samples, map, mauroc, knnperf);
   }
 
   /**
@@ -230,7 +230,6 @@ public class EvaluateRetrievalPerformance<O> implements Algorithm {
    * @param label Query object label
    */
   private void findMatches(ModifiableDBIDs posn, Relation<?> lrelation, Object label) {
-    posn.clear();
     for(DBIDIter ri = lrelation.iterDBIDs(); ri.valid(); ri.advance()) {
       if(match(label, lrelation.get(ri))) {
         posn.add(ri);
@@ -366,9 +365,9 @@ public class EvaluateRetrievalPerformance<O> implements Algorithm {
     private double map;
 
     /**
-     * ROC AUC value
+     * AUROC value
      */
-    private double rocauc;
+    private double auroc;
 
     /**
      * KNN performance
@@ -380,13 +379,13 @@ public class EvaluateRetrievalPerformance<O> implements Algorithm {
      *
      * @param samplesize Sample size
      * @param map MAP value
-     * @param rocauc ROC AUC value
+     * @param auroc AUROC value
      * @param knnperf
      */
-    public RetrievalPerformanceResult(int samplesize, double map, double rocauc, double[] knnperf) {
+    public RetrievalPerformanceResult(int samplesize, double map, double auroc, double[] knnperf) {
       super();
       this.map = map;
-      this.rocauc = rocauc;
+      this.auroc = auroc;
       this.samplesize = samplesize;
       this.knnperf = knnperf;
     }
@@ -394,8 +393,8 @@ public class EvaluateRetrievalPerformance<O> implements Algorithm {
     /**
      * @return the area under curve
      */
-    public double getROCAUC() {
-      return rocauc;
+    public double getAUROC() {
+      return auroc;
     }
 
     /**
@@ -420,8 +419,8 @@ public class EvaluateRetrievalPerformance<O> implements Algorithm {
       out.inlinePrintNoQuotes("MAP");
       out.inlinePrint(map);
       out.flush();
-      out.inlinePrintNoQuotes("ROCAUC");
-      out.inlinePrint(rocauc);
+      out.inlinePrintNoQuotes("AUROC");
+      out.inlinePrint(auroc);
       out.flush();
       out.inlinePrintNoQuotes("Samplesize");
       out.inlinePrint(samplesize);

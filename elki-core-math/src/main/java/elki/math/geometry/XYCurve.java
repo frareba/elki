@@ -67,6 +67,18 @@ public class XYCurve {
       maxy = Double.NEGATIVE_INFINITY;
 
   /**
+   * Drawing bounds for x
+   */
+  protected double mindx = Double.NEGATIVE_INFINITY,
+      maxdx = Double.POSITIVE_INFINITY;
+
+  /**
+   * Drawing bounds for y
+   */
+  protected double mindy = Double.NEGATIVE_INFINITY,
+      maxdy = Double.POSITIVE_INFINITY;
+
+  /**
    * Constructor with labels
    *
    * @param labelx Label for X axis
@@ -153,21 +165,17 @@ public class XYCurve {
     final int len = data.size();
     if(len >= 4) {
       // Look at the previous 2 points
-      final double l1x = data.get(len - 4);
-      final double l1y = data.get(len - 3);
-      final double l2x = data.get(len - 2);
-      final double l2y = data.get(len - 1);
+      final double l1x = data.get(len - 4), l1y = data.get(len - 3);
+      final double l2x = data.get(len - 2), l2y = data.get(len - 1);
       // Differences:
-      final double ldx = l2x - l1x;
-      final double ldy = l2y - l1y;
-      final double cdx = x - l2x;
-      final double cdy = y - l2y;
+      final double ldx = l2x - l1x, ldy = l2y - l1y;
+      final double cdx = x - l2x, cdy = y - l2y;
       // X simplification
-      if((ldx == 0) && (cdx == 0)) {
+      if(ldx == 0 && cdx == 0) {
         data.remove(len - 2, 2);
       }
       // horizontal simplification
-      else if((ldy == 0) && (cdy == 0)) {
+      else if(ldy == 0 && cdy == 0) {
         data.remove(len - 2, 2);
       }
       // diagonal simplification
@@ -235,6 +243,42 @@ public class XYCurve {
   }
 
   /**
+   * Lower drawing bound on x axis.
+   *
+   * @return lower drawing bound on X
+   */
+  public double getMindx() {
+    return mindx > Double.NEGATIVE_INFINITY ? mindx : minx;
+  }
+
+  /**
+   * upper drawing bound on x axis.
+   *
+   * @return upper drawing bound on X
+   */
+  public double getMaxdx() {
+    return maxdx < Double.POSITIVE_INFINITY ? maxdx : maxx;
+  }
+
+  /**
+   * Lower drawing bound on y axis.
+   *
+   * @return lower drawing bound on Y
+   */
+  public double getMindy() {
+    return mindy > Double.NEGATIVE_INFINITY ? mindy : miny;
+  }
+
+  /**
+   * Upper drawing bound on y axis.
+   *
+   * @return upper drawing bound on Y
+   */
+  public double getMaxdy() {
+    return maxdy < Double.POSITIVE_INFINITY ? maxdy : maxy;
+  }
+
+  /**
    * Curve X value at given position
    *
    * @param off Offset
@@ -261,12 +305,55 @@ public class XYCurve {
    * @param sy Scaling factor for Y axis
    */
   public void rescale(double sx, double sy) {
-    for(int i = 0; i < data.size(); i += 2) {
-      data.set(i, sx * data.get(i));
-      data.set(i + 1, sy * data.get(i + 1));
+    double[] d = data.data;
+    int i = 0;
+    while(i < data.size()) {
+      d[i++] *= sx;
+      d[i++] *= sy;
     }
     maxx *= sx;
     maxy *= sy;
+  }
+
+  /**
+   * Set the range of the plot.
+   *
+   * @param minx Minimum x
+   * @param miny Minimum y
+   * @param maxx Maximum x
+   * @param maxy Maximum y
+   */
+  public void setAxes(double minx, double miny, double maxx, double maxy) {
+    this.minx = minx;
+    this.miny = miny;
+    this.maxx = maxx;
+    this.maxy = maxy;
+  }
+
+  /**
+   * Set the drawing bounds of the plot.
+   *
+   * @param mindx lower drawing x
+   * @param mindy lower drawing y
+   * @param maxdx upper drawing x
+   * @param maxdy upper drawing y
+   */
+  public void setDrawingBounds(double mindx, double mindy, double maxdx, double maxdy) {
+    this.mindx = mindx;
+    this.mindy = mindy;
+    this.maxdx = maxdx;
+    this.maxdy = maxdy;
+  }
+
+  /**
+   * Checks if a point is inside the drawing bounds of this curve
+   *
+   * @param x X value
+   * @param y Y value
+   * @return whether the point is in the drawing bounds
+   */
+  public boolean isInDrawingBounds(double x, double y) {
+    return mindx <= x && x <= maxdx && mindy <= y && y <= maxdy;
   }
 
   /**
@@ -285,17 +372,13 @@ public class XYCurve {
    * positions is using "next" in Java style. Here, we can have two getters for
    * current values!
    * <p>
-   * Instead, use this style of iteration: <blockquote>
+   * Instead, use this style of iteration:
    * 
    * <pre>
-   * {@code
-   * for (XYCurve.Itr it = curve.iterator(); it.valid(); it.advance()) {
+   * for(XYCurve.Itr it = curve.iterator(); it.valid(); it.advance()) {
    *   doSomethingWith(it.getX(), it.getY());
    * }
-   * }
    * </pre>
-   * 
-   * </blockquote>
    *
    * @return Iterator
    */

@@ -33,7 +33,6 @@ import elki.database.ids.DBIDUtil;
 import elki.database.ids.DoubleDBIDList;
 import elki.evaluation.Evaluator;
 import elki.evaluation.scores.ScoreEvaluation;
-import elki.evaluation.scores.adapter.DBIDsTest;
 import elki.evaluation.scores.adapter.DistanceResultAdapter;
 import elki.logging.Logging;
 import elki.math.MeanVariance;
@@ -101,7 +100,7 @@ public class EvaluateClustering implements Evaluator {
    * @return Score
    */
   public static double evaluateRanking(ScoreEvaluation eval, Cluster<?> clus, DoubleDBIDList ranking) {
-    return eval.evaluate(new DBIDsTest(DBIDUtil.ensureSet(clus.getIDs())), new DistanceResultAdapter(ranking.iter()));
+    return eval.evaluate(new DistanceResultAdapter(DBIDUtil.ensureSet(clus.getIDs()), ranking.iter(), ranking.size()));
   }
 
   @Override
@@ -243,11 +242,15 @@ public class EvaluateClustering implements Evaluator {
           .addMeasure("Precision", bcubed.precision(), 0, 1, false) //
           .addMeasure("Recall", bcubed.recall(), 0, 1, false);
 
-      SetMatchingPurity setm = contmat.getSetMatching();
-      newGroup("Set matching") //
-          .addMeasure("F1-Measure", setm.f1Measure(), 0, 1, false) //
+      MaximumMatchingAccuracy kmwacc = contmat.getMaximumMatchingAccuracy();
+      SetMatchingPurity setm = contmat.getSetMatchingPurity();
+      PairSetsIndex psi = contmat.getPairSetsIndex();
+      newGroup("Set Matching") //
+          .addMeasure("Maximum Accuracy", kmwacc.getAccuracy(), 0, 1, false) //
           .addMeasure("Purity", setm.purity(), 0, 1, false) //
-          .addMeasure("Inverse Purity", setm.inversePurity(), 0, 1, false);
+          .addMeasure("Inverse Purity", setm.inversePurity(), 0, 1, false) //
+          .addMeasure("F1-Measure", setm.f1Measure(), 0, 1, false) //
+          .addMeasure("Pair Sets Index", psi.psi, 0, 1, false);
 
       EditDistance edit = contmat.getEdit();
       newGroup("Edit Distance") //

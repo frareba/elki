@@ -25,7 +25,6 @@ import elki.database.ids.*;
 import elki.database.query.range.RangeSearcher;
 import elki.database.query.similarity.SimilarityQuery;
 import elki.database.relation.Relation;
-import elki.index.AbstractIndex;
 import elki.index.IndexFactory;
 import elki.index.SimilarityIndex;
 import elki.index.SimilarityRangeIndex;
@@ -34,8 +33,8 @@ import elki.logging.progress.FiniteProgress;
 import elki.logging.statistics.LongStatistic;
 import elki.similarity.Similarity;
 import elki.utilities.exceptions.AbortException;
-import elki.utilities.optionhandling.Parameterizer;
 import elki.utilities.optionhandling.OptionID;
+import elki.utilities.optionhandling.Parameterizer;
 import elki.utilities.optionhandling.parameterization.Parameterization;
 import elki.utilities.optionhandling.parameters.ObjectParameter;
 
@@ -57,16 +56,21 @@ import elki.utilities.optionhandling.parameters.ObjectParameter;
  *
  * @param <O> Object type
  */
-public class PrecomputedSimilarityMatrix<O> extends AbstractIndex<O> implements SimilarityIndex<O>, SimilarityRangeIndex<O> {
+public class PrecomputedSimilarityMatrix<O> implements SimilarityIndex<O>, SimilarityRangeIndex<O> {
   /**
    * Class logger.
    */
   private static final Logging LOG = Logging.getLogger(PrecomputedSimilarityMatrix.class);
 
   /**
+   * The representation we are bound to.
+   */
+  protected final Relation<O> relation;
+
+  /**
    * Nested similarity function.
    */
-  final protected Similarity<? super O> similarityFunction;
+  protected Similarity<? super O> similarityFunction;
 
   /**
    * Nested similarity query.
@@ -95,9 +99,8 @@ public class PrecomputedSimilarityMatrix<O> extends AbstractIndex<O> implements 
    * @param similarityFunction Similarity function
    */
   public PrecomputedSimilarityMatrix(Relation<O> relation, Similarity<? super O> similarityFunction) {
-    super(relation);
+    this.relation = relation;
     this.similarityFunction = similarityFunction;
-
     if(!similarityFunction.isSymmetric()) {
       throw new AbortException("Similarity matrixes currently only support symmetric similarity functions (Patches welcome).");
     }
@@ -137,7 +140,7 @@ public class PrecomputedSimilarityMatrix<O> extends AbstractIndex<O> implements 
   }
 
   /**
-   * Compute the size of a complete x by x triangle (minus diagonal)
+   * Compute the size of a complete x by x triangle (minus diagonal).
    *
    * @param x Offset
    * @return Size of complete triangle
@@ -162,16 +165,6 @@ public class PrecomputedSimilarityMatrix<O> extends AbstractIndex<O> implements 
     if(matrix != null) {
       LOG.statistics(new LongStatistic(this.getClass().getName() + ".matrix-size", matrix.length));
     }
-  }
-
-  @Override
-  public String getLongName() {
-    return "Precomputed Similarity Matrix";
-  }
-
-  @Override
-  public String getShortName() {
-    return "similarity-matrix";
   }
 
   @Override
@@ -275,7 +268,7 @@ public class PrecomputedSimilarityMatrix<O> extends AbstractIndex<O> implements 
     /**
      * Nested similarity function.
      */
-    final protected Similarity<? super O> similarityFunction;
+    protected final Similarity<? super O> similarityFunction;
 
     /**
      * Constructor.

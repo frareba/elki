@@ -39,7 +39,6 @@ import elki.result.outlier.InvertedOutlierScoreMeta;
 import elki.result.outlier.OutlierResult;
 import elki.result.outlier.OutlierScoreMeta;
 import elki.utilities.datastructures.heap.Heap;
-import elki.utilities.datastructures.heap.TopBoundedHeap;
 import elki.utilities.documentation.Description;
 import elki.utilities.documentation.Reference;
 import elki.utilities.documentation.Title;
@@ -70,8 +69,6 @@ import it.unimi.dsi.fastutil.ints.IntIterator;
  *
  * @navhas - runs - EvolutionarySearch
  * @navhas - obtains - Individuum
- *
- * @param <V> the type of FeatureVector handled by this Algorithm
  */
 @Title("EAFOD: the evolutionary outlier detection algorithm")
 @Description("Outlier detection for high dimensional data")
@@ -80,7 +77,7 @@ import it.unimi.dsi.fastutil.ints.IntIterator;
     booktitle = "Proc. ACM SIGMOD Int. Conf. on Management of Data (SIGMOD 2001)", //
     url = "https://doi.org/10.1145/375663.375668", //
     bibkey = "DBLP:conf/sigmod/AggarwalY01")
-public class AggarwalYuEvolutionary<V extends NumberVector> extends AbstractAggarwalYuOutlier<V> {
+public class AggarwalYuEvolutionary extends AbstractAggarwalYuOutlier {
   /**
    * The logger for this class.
    */
@@ -126,11 +123,11 @@ public class AggarwalYuEvolutionary<V extends NumberVector> extends AbstractAgga
    * @param relation Relation
    * @return Result
    */
-  public OutlierResult run(Relation<V> relation) {
+  public OutlierResult run(Relation<? extends NumberVector> relation) {
     final int dbsize = relation.size();
     ArrayList<ArrayList<DBIDs>> ranges = buildRanges(relation);
 
-    Heap<Individuum>.UnorderedIter individuums = (new EvolutionarySearch(relation, ranges, m, rnd.getSingleThreadedRandom())).run();
+    Heap<Individuum>.UnorderedIter individuums = (new EvolutionarySearch(relation, ranges, rnd.getSingleThreadedRandom())).run();
 
     WritableDoubleDataStore outlierScore = DataStoreUtil.makeDoubleStorage(relation.getDBIDs(), DataStoreFactory.HINT_HOT | DataStoreFactory.HINT_STATIC);
     for(; individuums.valid(); individuums.advance()) {
@@ -181,38 +178,36 @@ public class AggarwalYuEvolutionary<V extends NumberVector> extends AbstractAgga
     final ArrayList<ArrayList<DBIDs>> ranges;
 
     /**
-     * m to use.
-     */
-    final int m;
-
-    /**
      * random generator.
      */
-    final private Random random;
+    private final Random random;
 
     /**
      * Constructor.
      *
      * @param relation Database to use
      * @param ranges DBID ranges to process
-     * @param m Population size
      * @param random Random generator
      */
-    public EvolutionarySearch(Relation<V> relation, ArrayList<ArrayList<DBIDs>> ranges, int m, Random random) {
+    public EvolutionarySearch(Relation<? extends NumberVector> relation, ArrayList<ArrayList<DBIDs>> ranges, Random random) {
       super();
       this.ranges = ranges;
-      this.m = m;
       this.dbsize = relation.size();
       this.dim = RelationUtil.dimensionality(relation);
       this.random = random;
     }
 
+    /**
+     * Run the evolutionary search.
+     * 
+     * @return Iterator of best results
+     */
     public Heap<Individuum>.UnorderedIter run() {
       ArrayList<Individuum> pop = initialPopulation(m);
       // best Population
-      TopBoundedHeap<Individuum> bestSol = new TopBoundedHeap<>(m, Collections.reverseOrder());
+      Heap<Individuum> bestSol = new Heap<>(m, Collections.reverseOrder());
       for(Individuum ind : pop) {
-        bestSol.add(ind);
+        bestSol.add(ind, m);
       }
 
       IndefiniteProgress prog = LOG.isVerbose() ? new IndefiniteProgress("Evolutionary search iterations", LOG) : null;
@@ -232,7 +227,7 @@ public class AggarwalYuEvolutionary<V extends NumberVector> extends AbstractAgga
               continue ind;
             }
           }
-          bestSol.add(ind);
+          bestSol.add(ind, m);
         }
         if(LOG.isDebuggingFinest()) {
           StringBuilder buf = new StringBuilder(1000).append("Top solutions:\n");
@@ -259,7 +254,7 @@ public class AggarwalYuEvolutionary<V extends NumberVector> extends AbstractAgga
     }
 
     /**
-     * check the termination criterion.
+     * Check the termination criterion.
      *
      * @param pop Population
      * @return Convergence
@@ -342,8 +337,8 @@ public class AggarwalYuEvolutionary<V extends NumberVector> extends AbstractAgga
 
     /**
      * Select surviving individuums weighted by rank.
-     *
-     * the selection criterion for the genetic algorithm: <br>
+     * <p>
+     * The selection criterion for the genetic algorithm: <br>
      * roulette wheel mechanism: <br>
      * where the probability of sampling an individual of the population was
      * proportional to p - r(i), where p is the size of population and r(i) the
@@ -455,20 +450,17 @@ public class AggarwalYuEvolutionary<V extends NumberVector> extends AbstractAgga
      * @return recombined children
      */
     private Pair<Individuum, Individuum> recombineOptimized(Individuum parent1, Individuum parent2) {
-      Pair<Individuum, Individuum> recombinePair;
-      // Set of Positions in which either s1 or s2 are don't care
+      final short[] gene1 = parent1.getGene(), gene2 = parent2.getGene();
+      // Set of positions in which either s1 or s2 are don't care
       IntArrayList Q = new IntArrayList(dim);
-      // Set of Positions in which neither s1 or s2 is don't care
+      // Set of positions in which neither s1 or s2 is don't care
       IntArrayList R = new IntArrayList(dim);
 
       for(int i = 0; i < dim; i++) {
-        if((parent1.getGene()[i] == DONT_CARE) && (parent2.getGene()[i] != DONT_CARE)) {
+        if(gene1[i] != gene2[i]) {
           Q.add(i);
         }
-        if((parent1.getGene()[i] != DONT_CARE) && (parent2.getGene()[i] == DONT_CARE)) {
-          Q.add(i);
-        }
-        if((parent1.getGene()[i] != DONT_CARE) && (parent2.getGene()[i] != DONT_CARE)) {
+        if((gene1[i] != DONT_CARE) && (gene2[i] != DONT_CARE)) {
           R.add(i);
         }
       }
@@ -487,11 +479,11 @@ public class AggarwalYuEvolutionary<V extends NumberVector> extends AbstractAgga
           int next = q.nextInt();
           // pos = next;
 
-          boolean s1Null = (parent1.getGene()[next] == DONT_CARE);
-          boolean s2Null = (parent1.getGene()[next] == DONT_CARE);
+          boolean s1Null = (gene1[next] == DONT_CARE);
+          boolean s2Null = (gene1[next] == DONT_CARE);
 
-          l1[next] = parent1.getGene()[next];
-          l2[next] = parent2.getGene()[next];
+          l1[next] = gene1[next];
+          l2[next] = gene2[next];
 
           final double sparsityL1 = sparsity(computeSubspaceForGene(l1, ranges).size(), dbsize, k, phi);
           final double sparsityL2 = sparsity(computeSubspaceForGene(l2, ranges).size(), dbsize, k, phi);
@@ -514,20 +506,10 @@ public class AggarwalYuEvolutionary<V extends NumberVector> extends AbstractAgga
 
       // create the complementary String
       short[] comp = new short[dim];
-
       for(int i = 0; i < dim; i++) {
-        if(b[i] == parent1.getGene()[i]) {
-          comp[i] = parent2.getGene()[i];
-        }
-        else {
-          comp[i] = parent2.getGene()[i];
-        }
+        comp[i] = b[i] == gene1[i] ? gene2[i] : gene1[i];
       }
-      final Individuum i1 = makeIndividuum(b);
-      final Individuum i2 = makeIndividuum(comp);
-      recombinePair = new Pair<>(i1, i2);
-
-      return recombinePair;
+      return new Pair<>(makeIndividuum(b), makeIndividuum(comp));
     }
 
     /**
@@ -612,20 +594,13 @@ public class AggarwalYuEvolutionary<V extends NumberVector> extends AbstractAgga
 
     @Override
     public String toString() {
-      StringBuilder buf = new StringBuilder(200).append("I(f=").append(fitness).append(",g=");
+      StringBuilder buf = new StringBuilder(200) //
+          .append("I(f=").append(fitness).append(",g=") //
+          .append(gene[0] == DONT_CARE ? '*' : gene[0]);
       for(int i = 0; i < gene.length; i++) {
-        if(i > 0) {
-          buf.append(',');
-        }
-        if(gene[i] == DONT_CARE) {
-          buf.append('*');
-        }
-        else {
-          buf.append(gene[i]);
-        }
+        buf.append(',').append(gene[i] == DONT_CARE ? '*' : gene[i]);
       }
-      buf.append(')');
-      return buf.toString();
+      return buf.append(')').toString();
     }
 
     @Override
@@ -661,7 +636,7 @@ public class AggarwalYuEvolutionary<V extends NumberVector> extends AbstractAgga
    *
    * @author Erich Schubert
    */
-  public static class Par<V extends NumberVector> extends AbstractAggarwalYuOutlier.Par {
+  public static class Par extends AbstractAggarwalYuOutlier.Par {
     /**
      * Parameter to specify the number of solutions must be an integer greater
      * than 1.
@@ -673,8 +648,14 @@ public class AggarwalYuEvolutionary<V extends NumberVector> extends AbstractAgga
      */
     public static final OptionID SEED_ID = new OptionID("ay.seed", "The random number generator seed.");
 
+    /**
+     * Population size.
+     */
     protected int m = 0;
 
+    /**
+     * Random generator
+     */
     protected RandomFactory rnd;
 
     @Override
@@ -687,8 +668,8 @@ public class AggarwalYuEvolutionary<V extends NumberVector> extends AbstractAgga
     }
 
     @Override
-    public AggarwalYuEvolutionary<V> make() {
-      return new AggarwalYuEvolutionary<>(k, phi, m, rnd);
+    public AggarwalYuEvolutionary make() {
+      return new AggarwalYuEvolutionary(k, phi, m, rnd);
     }
   }
 }

@@ -83,9 +83,6 @@ public class GeneratorXMLSpec extends AbstractApplication {
     this.generator = generator;
   }
 
-  /**
-   * Runs the wrapper with the specified arguments.
-   */
   @Override
   public void run() {
     MultipleObjectsBundle data = generator.loadData();
@@ -94,10 +91,10 @@ public class GeneratorXMLSpec extends AbstractApplication {
     }
     try {
       if(Files.exists(outputFile) && LOG.isVerbose()) {
-        LOG.verbose("The file " + outputFile + " already exists, " + "the generator result will be APPENDED.");
+        LOG.verbose("The file " + outputFile + " already exists, " + "the generator result will be OVERWRITTEN.");
       }
       try (
-          BufferedWriter outStream = Files.newBufferedWriter(outputFile, StandardOpenOption.APPEND)) {
+          BufferedWriter outStream = Files.newBufferedWriter(outputFile, StandardOpenOption.CREATE)) {
         writeClusters(outStream, data);
       }
     }

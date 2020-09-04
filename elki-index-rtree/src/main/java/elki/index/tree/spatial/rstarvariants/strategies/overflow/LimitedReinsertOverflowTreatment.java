@@ -88,17 +88,18 @@ public class LimitedReinsertOverflowTreatment implements OverflowTreatment {
     if(depthm1 == 0) {
       return false;
     }
-    // Earlier reinsertions at the same level
+    // Resize if necessary. TODO: do in reinitialize only?
     if(BitsUtil.capacity(reinsertions) < depthm1) {
       reinsertions = BitsUtil.copy(reinsertions, depthm1);
     }
+    // Earlier reinsertions at the same level
     if(BitsUtil.get(reinsertions, depthm1)) {
       return false;
     }
 
     BitsUtil.setI(reinsertions, depthm1);
     final E entry = path.getEntry();
-    assert (!(entry instanceof LeafEntry)) : "Unexpected leaf entry";
+    assert !(entry instanceof LeafEntry) : "Unexpected leaf entry";
     int[] cands = reinsertStrategy.computeReinserts(node, NodeArrayAdapter.STATIC, entry);
     if(cands == null || cands.length == 0) {
       return false;
@@ -121,7 +122,7 @@ public class LimitedReinsertOverflowTreatment implements OverflowTreatment {
     /**
      * Fast-insertion parameter. Optional.
      */
-    public static OptionID REINSERT_STRATEGY_ID = new OptionID("rtree.reinsertion-strategy", "The strategy to select candidates for reinsertion.");
+    public static final OptionID REINSERT_STRATEGY_ID = new OptionID("rtree.reinsertion-strategy", "The strategy to select candidates for reinsertion.");
 
     /**
      * The actual reinsertion strategy

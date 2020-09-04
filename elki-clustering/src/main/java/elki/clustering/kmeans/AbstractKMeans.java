@@ -413,7 +413,7 @@ public abstract class AbstractKMeans<V extends NumberVector, M extends Model> im
     }
 
     /**
-     * Compute a distance (and count the distance computations).
+     * Compute the squared distance (and count the distance computations).
      *
      * @param x First object
      * @param y Second object
@@ -425,7 +425,7 @@ public abstract class AbstractKMeans<V extends NumberVector, M extends Model> im
     }
 
     /**
-     * Compute a distance (and count the distance computations).
+     * Compute the squared distance (and count the distance computations).
      *
      * @param x First object
      * @param y Second object
@@ -448,7 +448,7 @@ public abstract class AbstractKMeans<V extends NumberVector, M extends Model> im
     }
 
     /**
-     * Compute a distance (and count the distance computations).
+     * Compute the squared distance (and count the distance computations).
      *
      * @param x First object
      * @param y Second object
@@ -471,6 +471,45 @@ public abstract class AbstractKMeans<V extends NumberVector, M extends Model> im
     }
 
     /**
+     * Compute the distance (and count the distance computations).
+     * If the distance is squared, also compute the square root.
+     *
+     * @param x First object
+     * @param y Second object
+     * @return Distance
+     */
+    protected double sqrtdistance(NumberVector x, NumberVector y) {
+      final double d = distance(x, y);
+      return isSquared ? FastMath.sqrt(d) : d;
+    }
+
+    /**
+     * Compute the distance (and count the distance computations).
+     * If the distance is squared, also compute the square root.
+     *
+     * @param x First object
+     * @param y Second object
+     * @return Distance
+     */
+    protected double sqrtdistance(NumberVector x, double[] y) {
+      final double d = distance(x, y);
+      return isSquared ? FastMath.sqrt(d) : d;
+    }
+
+    /**
+     * Compute the distance (and count the distance computations).
+     * If the distance is squared, also compute the square root.
+     *
+     * @param x First object
+     * @param y Second object
+     * @return Distance
+     */
+    protected double sqrtdistance(double[] x, double[] y) {
+      final double d = distance(x, y);
+      return isSquared ? FastMath.sqrt(d) : d;
+    }
+
+    /**
      * Run the clustering.
      *
      * @param maxiter Maximum number of iterations
@@ -479,14 +518,20 @@ public abstract class AbstractKMeans<V extends NumberVector, M extends Model> im
       final Logging log = getLogger();
       IndefiniteProgress prog = log.isVerbose() ? new IndefiniteProgress("Iteration") : null;
       int iteration = 0;
-      while(++iteration <= maxiter) {
+      while(iteration < maxiter) {
+        Duration duration = log.newDuration(key + "." + iteration + ".time").begin();
+        long prevdiststat = diststat;
         log.incrementProcessed(prog);
-        int changed = iterate(iteration);
+        int changed = iterate(++iteration);
         if(changed == 0) {
           break;
         }
         if(log.isStatistics()) {
+          log.statistics(duration.end());
           log.statistics(new LongStatistic(key + "." + iteration + ".reassignments", Math.abs(changed)));
+          if(diststat > prevdiststat) {
+            log.statistics(new LongStatistic(key + "." + iteration + ".distance-computations", diststat - prevdiststat));
+          }
           final double s = sum(varsum);
           if(s > 0) {
             log.statistics(new DoubleStatistic(key + "." + iteration + ".variance-sum", s));
@@ -495,7 +540,6 @@ public abstract class AbstractKMeans<V extends NumberVector, M extends Model> im
       }
       log.setCompleted(prog);
       log.statistics(new LongStatistic(key + ".iterations", iteration));
-      log.statistics(new LongStatistic(key + ".distance-computations", diststat));
     }
 
     /**
@@ -536,26 +580,25 @@ public abstract class AbstractKMeans<V extends NumberVector, M extends Model> im
      * @return number of objects reassigned
      */
     protected int assignToNearestCluster() {
-      assert (k == means.length);
+      assert k == means.length;
       int changed = 0;
       // Reset all clusters
       Arrays.fill(varsum, 0.);
       for(ModifiableDBIDs cluster : clusters) {
         cluster.clear();
       }
-      boolean issquared = isSquared();
       for(DBIDIter iditer = relation.iterDBIDs(); iditer.valid(); iditer.advance()) {
-        double mindist = Double.POSITIVE_INFINITY;
         NumberVector fv = relation.get(iditer);
+        double mindist = distance(fv, means[0]);
         int minIndex = 0;
-        for(int i = 0; i < k; i++) {
+        for(int i = 1; i < k; i++) {
           double dist = distance(fv, means[i]);
           if(dist < mindist) {
             minIndex = i;
             mindist = dist;
           }
         }
-        varsum[minIndex] += issquared ? mindist : (mindist * mindist);
+        varsum[minIndex] += isSquared ? mindist : (mindist * mindist);
         clusters.get(minIndex).add(iditer);
         if(assignment.putInt(iditer, minIndex) != minIndex) {
           ++changed;
@@ -574,17 +617,44 @@ public abstract class AbstractKMeans<V extends NumberVector, M extends Model> im
      */
     protected void recomputeSeperation(double[] sep, double[][] cdist) {
       final int k = means.length;
-      final boolean issquared = df.isSquared();
-      assert (sep.length == k);
+      assert sep.length == k;
       Arrays.fill(sep, Double.POSITIVE_INFINITY);
       for(int i = 1; i < k; i++) {
         double[] mi = means[i];
         for(int j = 0; j < i; j++) {
-          double d = distance(mi, means[j]);
-          d = .5 * (issquared ? FastMath.sqrt(d) : d);
-          cdist[i][j] = cdist[j][i] = d;
-          sep[i] = (d < sep[i]) ? d : sep[i];
-          sep[j] = (d < sep[j]) ? d : sep[j];
+          double halfd = 0.5 * sqrtdistance(mi, means[j]);
+          cdist[i][j] = cdist[j][i] = halfd;
+          sep[i] = (halfd < sep[i]) ? halfd : sep[i];
+          sep[j] = (halfd < sep[j]) ? halfd : sep[j];
+        }
+      }
+    }
+
+    /**
+     * Initial separation of means. Used by Elkan, SimplifiedElkan.
+     *
+     * @param cdist Pairwise separation output (as sqrt/2)
+     */
+    protected void initialSeperation(double[][] cdist) {
+      final int k = means.length;
+      for(int i = 1; i < k; i++) {
+        double[] mi = means[i];
+        for(int j = 0; j < i; j++) {
+          cdist[i][j] = cdist[j][i] = .5 * sqrtdistance(mi, means[j]);
+        }
+      }
+    }
+
+    /**
+     * Initial separation of means. Used by Hamerly, Exponion, and Annulus.
+     * 
+     * @param cost Pairwise separation output (as squared/4)
+     */
+    protected void computeSquaredSeparation(double[][] cost) {
+      for(int i = 0; i < k; i++) {
+        double[] mi = means[i];
+        for(int j = 0; j < i; j++) {
+          cost[i][j] = cost[j][i] = distance(mi, means[j]) * 0.25;
         }
       }
     }
@@ -600,13 +670,10 @@ public abstract class AbstractKMeans<V extends NumberVector, M extends Model> im
      * @return Maximum distance moved
      */
     protected double movedDistance(double[][] means, double[][] newmeans, double[] dists) {
-      assert (newmeans.length == means.length);
-      assert (dists.length == means.length);
-      boolean issquared = df.isSquared();
+      assert newmeans.length == means.length && dists.length == means.length;
       double max = 0.;
       for(int i = 0; i < means.length; i++) {
-        double d = distance(means[i], newmeans[i]);
-        dists[i] = d = issquared ? FastMath.sqrt(d) : d;
+        double d = dists[i] = sqrtdistance(means[i], newmeans[i]);
         max = (d > max) ? d : max;
       }
       return max;
@@ -639,6 +706,7 @@ public abstract class AbstractKMeans<V extends NumberVector, M extends Model> im
      * @return Clustering result
      */
     protected Clustering<KMeansModel> buildResult(boolean varstat, Relation<? extends NumberVector> relation) {
+      Logging log = getLogger();
       Clustering<KMeansModel> result = new Clustering<>();
       Metadata.of(result).setLongName("k-Means Clustering");
       if(relation.size() <= 0) {
@@ -654,36 +722,30 @@ public abstract class AbstractKMeans<V extends NumberVector, M extends Model> im
         }
       }
       else {
+        long beforestat = diststat;
         double totalvariance = 0.;
         for(int i = 0; i < clusters.size(); i++) {
           DBIDs ids = clusters.get(i);
           if(ids.isEmpty()) {
             continue;
           }
-          double varsum = 0;
+          double vsum = 0;
           double[] mean = means[i];
           for(DBIDIter it = ids.iter(); it.valid(); it.advance()) {
-            varsum += distance(relation.get(it), mean);
+            vsum += distance(relation.get(it), mean);
           }
-          totalvariance += varsum;
-          result.addToplevelCluster(new Cluster<>(ids, new KMeansModel(mean, varsum)));
+          totalvariance += vsum;
+          result.addToplevelCluster(new Cluster<>(ids, new KMeansModel(mean, vsum)));
         }
-        Logging log = getLogger();
         if(log.isStatistics()) {
           log.statistics(new DoubleStatistic(key + ".variance-sum", totalvariance));
-          log.statistics(new LongStatistic(key + ".distance-computations", diststat));
+          log.statistics(new LongStatistic(key + ".variance.distance-computations", diststat - beforestat));
         }
       }
+      if(log.isStatistics()) {
+        log.statistics(new LongStatistic(key + ".distance-computations", diststat));
+      }
       return result;
-    }
-
-    /**
-     * Get if the distance function is squared.
-     *
-     * @return {@code true} when squared
-     */
-    protected boolean isSquared() {
-      return df.isSquared();
     }
 
     /**
@@ -807,6 +869,6 @@ public abstract class AbstractKMeans<V extends NumberVector, M extends Model> im
     }
 
     @Override
-    abstract public AbstractKMeans<V, ?> make();
+    public abstract AbstractKMeans<V, ?> make();
   }
 }

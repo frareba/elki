@@ -29,7 +29,6 @@ import elki.clustering.ClusteringAlgorithm;
 import elki.clustering.kmeans.KMeans;
 import elki.data.Cluster;
 import elki.data.Clustering;
-import elki.data.NumberVector;
 import elki.data.model.MeanModel;
 import elki.data.type.SimpleTypeInformation;
 import elki.data.type.TypeInformation;
@@ -42,7 +41,6 @@ import elki.database.ids.DBIDUtil;
 import elki.database.ids.ModifiableDBIDs;
 import elki.database.relation.MaterializedRelation;
 import elki.database.relation.Relation;
-import elki.distance.minkowski.SquaredEuclideanDistance;
 import elki.logging.Logging;
 import elki.logging.statistics.DoubleStatistic;
 import elki.logging.statistics.LongStatistic;
@@ -84,7 +82,7 @@ import net.jafama.FastMath;
  * 
  * @composed - - - EMClusterModelFactory
  * 
- * @param <V> vector type to analyze
+ * @param <O> object type to analyze
  * @param <M> model type to produce
  */
 @Title("EM-Clustering: Clustering by Expectation Maximization")
@@ -100,7 +98,7 @@ import net.jafama.FastMath;
     url = "https://doi.org/10.1007/s00357-007-0004-5", //
     bibkey = "DBLP:journals/classification/FraleyR07")
 @Priority(Priority.RECOMMENDED)
-public class EM<V extends NumberVector, M extends MeanModel> implements ClusteringAlgorithm<Clustering<M>> {
+public class EM<O, M extends MeanModel> implements ClusteringAlgorithm<Clustering<M>> {
   /**
    * The logger for this class.
    */
@@ -124,7 +122,12 @@ public class EM<V extends NumberVector, M extends MeanModel> implements Clusteri
   /**
    * Factory for producing the initial cluster model.
    */
-  private EMClusterModelFactory<V, M> mfactory;
+  private EMClusterModelFactory<O, M> mfactory;
+
+  /**
+   * Minimum number of iterations to do
+   */
+  private int miniter;
 
   /**
    * Maximum number of iterations to allow
@@ -158,7 +161,7 @@ public class EM<V extends NumberVector, M extends MeanModel> implements Clusteri
    * @param delta delta parameter
    * @param mfactory EM cluster model factory
    */
-  public EM(int k, double delta, EMClusterModelFactory<V, M> mfactory) {
+  public EM(int k, double delta, EMClusterModelFactory<O, M> mfactory) {
     this(k, delta, mfactory, -1, 0., false);
   }
 
@@ -171,7 +174,7 @@ public class EM<V extends NumberVector, M extends MeanModel> implements Clusteri
    * @param maxiter Maximum number of iterations
    * @param soft Include soft assignments
    */
-  public EM(int k, double delta, EMClusterModelFactory<V, M> mfactory, int maxiter, boolean soft) {
+  public EM(int k, double delta, EMClusterModelFactory<O, M> mfactory, int maxiter, boolean soft) {
     this(k, delta, mfactory, maxiter, 0., soft);
   }
 
@@ -185,11 +188,27 @@ public class EM<V extends NumberVector, M extends MeanModel> implements Clusteri
    * @param prior MAP prior
    * @param soft Include soft assignments
    */
-  public EM(int k, double delta, EMClusterModelFactory<V, M> mfactory, int maxiter, double prior, boolean soft) {
+  public EM(int k, double delta, EMClusterModelFactory<O, M> mfactory, int maxiter, double prior, boolean soft) {
+    this(k, delta, mfactory, 1, maxiter, prior, soft);
+  }
+
+  /**
+   * Constructor.
+   *
+   * @param k k parameter
+   * @param delta delta parameter
+   * @param mfactory EM cluster model factory
+   * @param miniter Minimum number of iterations
+   * @param maxiter Maximum number of iterations
+   * @param prior MAP prior
+   * @param soft Include soft assignments
+   */
+  public EM(int k, double delta, EMClusterModelFactory<O, M> mfactory, int miniter, int maxiter, double prior, boolean soft) {
     super();
     this.k = k;
     this.delta = delta;
     this.mfactory = mfactory;
+    this.miniter = miniter;
     this.maxiter = maxiter;
     this.prior = prior;
     this.soft = soft;
@@ -211,12 +230,12 @@ public class EM<V extends NumberVector, M extends MeanModel> implements Clusteri
    * @param relation Relation
    * @return Clustering result
    */
-  public Clustering<M> run(Relation<V> relation) {
+  public Clustering<M> run(Relation<O> relation) {
     if(relation.size() == 0) {
       throw new IllegalArgumentException("database empty: must contain elements");
     }
     // initial models
-    List<? extends EMClusterModel<M>> models = mfactory.buildInitialModels(relation, k, SquaredEuclideanDistance.STATIC);
+    List<? extends EMClusterModel<O, M>> models = mfactory.buildInitialModels(relation, k);
     WritableDataStore<double[]> probClusterIGivenX = DataStoreUtil.makeStorage(relation.getDBIDs(), DataStoreFactory.HINT_HOT | DataStoreFactory.HINT_SORTED, double[].class);
     double loglikelihood = assignProbabilitiesToInstances(relation, models, probClusterIGivenX);
     DoubleStatistic likestat = new DoubleStatistic(this.getClass().getName() + ".loglikelihood");
@@ -236,7 +255,7 @@ public class EM<V extends NumberVector, M extends MeanModel> implements Clusteri
         lastimprovement = it;
         bestloglikelihood = loglikelihood;
       }
-      if(Math.abs(loglikelihood - oldloglikelihood) <= delta || lastimprovement < it >> 1) {
+      if(it >= miniter && (Math.abs(loglikelihood - oldloglikelihood) <= delta || lastimprovement < it >> 1)) {
         break;
       }
     }
@@ -258,7 +277,7 @@ public class EM<V extends NumberVector, M extends MeanModel> implements Clusteri
     for(int i = 0; i < k; i++) {
       result.addToplevelCluster(new Cluster<>(hardClusters.get(i), models.get(i).finalizeCluster()));
     }
-    if(isSoft()) {
+    if(soft) {
       Metadata.hierarchyOf(result).addChild(new MaterializedRelation<>("EM Cluster Probabilities", SOFT_TYPE, relation.getDBIDs(), probClusterIGivenX));
     }
     else {
@@ -274,11 +293,12 @@ public class EM<V extends NumberVector, M extends MeanModel> implements Clusteri
    * @param probClusterIGivenX Object probabilities
    * @param models Cluster models to update
    * @param prior MAP prior (use 0 for MLE)
+   * @param <O> Object type
    */
-  public static void recomputeCovarianceMatrices(Relation<? extends NumberVector> relation, WritableDataStore<double[]> probClusterIGivenX, List<? extends EMClusterModel<?>> models, double prior) {
+  public static <O> void recomputeCovarianceMatrices(Relation<? extends O> relation, WritableDataStore<double[]> probClusterIGivenX, List<? extends EMClusterModel<O, ?>> models, double prior) {
     final int k = models.size();
     boolean needsTwoPass = false;
-    for(EMClusterModel<?> m : models) {
+    for(EMClusterModel<?, ?> m : models) {
       m.beginEStep();
       needsTwoPass |= m.needsTwoPass();
     }
@@ -286,7 +306,7 @@ public class EM<V extends NumberVector, M extends MeanModel> implements Clusteri
     if(needsTwoPass) {
       for(DBIDIter iditer = relation.iterDBIDs(); iditer.valid(); iditer.advance()) {
         double[] clusterProbabilities = probClusterIGivenX.get(iditer);
-        NumberVector instance = relation.get(iditer);
+        O instance = relation.get(iditer);
         for(int i = 0; i < clusterProbabilities.length; i++) {
           final double prob = clusterProbabilities[i];
           if(prob > 1e-10) {
@@ -294,14 +314,14 @@ public class EM<V extends NumberVector, M extends MeanModel> implements Clusteri
           }
         }
       }
-      for(EMClusterModel<?> m : models) {
+      for(EMClusterModel<?, ?> m : models) {
         m.finalizeFirstPassE();
       }
     }
     double[] wsum = new double[k];
     for(DBIDIter iditer = relation.iterDBIDs(); iditer.valid(); iditer.advance()) {
       double[] clusterProbabilities = probClusterIGivenX.get(iditer);
-      NumberVector instance = relation.get(iditer);
+      O instance = relation.get(iditer);
       for(int i = 0; i < clusterProbabilities.length; i++) {
         final double prob = clusterProbabilities[i];
         if(prob > 1e-10) {
@@ -327,14 +347,15 @@ public class EM<V extends NumberVector, M extends MeanModel> implements Clusteri
    * @param relation the database used for assignment to instances
    * @param models Cluster models
    * @param probClusterIGivenX Output storage for cluster probabilities
+   * @param <O> Object type
    * @return the expectation value of the current mixture of distributions
    */
-  public static double assignProbabilitiesToInstances(Relation<? extends NumberVector> relation, List<? extends EMClusterModel<?>> models, WritableDataStore<double[]> probClusterIGivenX) {
+  public static <O> double assignProbabilitiesToInstances(Relation<? extends O> relation, List<? extends EMClusterModel<O, ?>> models, WritableDataStore<double[]> probClusterIGivenX) {
     final int k = models.size();
     double emSum = 0.;
 
     for(DBIDIter iditer = relation.iterDBIDs(); iditer.valid(); iditer.advance()) {
-      NumberVector vec = relation.get(iditer);
+      O vec = relation.get(iditer);
       double[] probs = new double[k];
       for(int i = 0; i < k; i++) {
         double v = models.get(i).estimateLogDensity(vec);
@@ -374,14 +395,10 @@ public class EM<V extends NumberVector, M extends MeanModel> implements Clusteri
   }
 
   /**
-   * @return the soft
-   */
-  public boolean isSoft() {
-    return soft;
-  }
-
-  /**
-   * @param soft the soft to set
+   * Set whether the clustering is supposed to preserve cluster assignment
+   * probabilities. Used by {@link elki.outlier.clustering.EMOutlier}.
+   *
+   * @param soft return assignment probabilities
    */
   public void setSoft(boolean soft) {
     this.soft = soft;
@@ -392,7 +409,7 @@ public class EM<V extends NumberVector, M extends MeanModel> implements Clusteri
    * 
    * @author Erich Schubert
    */
-  public static class Par<V extends NumberVector, M extends MeanModel> implements Parameterizer {
+  public static class Par<O, M extends MeanModel> implements Parameterizer {
     /**
      * Parameter to specify the number of clusters to find, must be an integer
      * greater than 0.
@@ -404,20 +421,22 @@ public class EM<V extends NumberVector, M extends MeanModel> implements Clusteri
      * E(M) - E(M') &lt; em.delta, must be a double equal to or greater than 0.
      */
     public static final OptionID DELTA_ID = new OptionID("em.delta", //
-        "The termination criterion for maximization of E(M): " + //
-            "E(M) - E(M') < em.delta");
+        "The termination criterion for maximization of E(M): E(M) - E(M') < em.delta");
 
     /**
      * Parameter to specify the EM cluster models to use.
      */
-    public static final OptionID INIT_ID = new OptionID("em.model", //
-        "Model factory.");
+    public static final OptionID INIT_ID = new OptionID("em.model", "Model factory.");
+
+    /**
+     * Parameter to specify a minimum number of iterations
+     */
+    public static final OptionID MINITER_ID = new OptionID("em.miniter", "Minimum number of iterations.");
 
     /**
      * Parameter to specify the MAP prior
      */
-    public static final OptionID PRIOR_ID = new OptionID("em.map.prior", //
-        "Regularization factor for MAP estimation.");
+    public static final OptionID PRIOR_ID = new OptionID("em.map.prior", "Regularization factor for MAP estimation.");
 
     /**
      * Number of clusters.
@@ -432,7 +451,12 @@ public class EM<V extends NumberVector, M extends MeanModel> implements Clusteri
     /**
      * Initialization method
      */
-    protected EMClusterModelFactory<V, M> initializer;
+    protected EMClusterModelFactory<O, M> initializer;
+
+    /**
+     * Minimum number of iterations.
+     */
+    protected int miniter = 1;
 
     /**
      * Maximum number of iterations.
@@ -449,11 +473,15 @@ public class EM<V extends NumberVector, M extends MeanModel> implements Clusteri
       new IntParameter(K_ID) //
           .addConstraint(CommonConstraints.GREATER_EQUAL_ONE_INT) //
           .grab(config, x -> k = x);
-      new ObjectParameter<EMClusterModelFactory<V, M>>(INIT_ID, EMClusterModelFactory.class, MultivariateGaussianModelFactory.class) //
+      new ObjectParameter<EMClusterModelFactory<O, M>>(INIT_ID, EMClusterModelFactory.class, MultivariateGaussianModelFactory.class) //
           .grab(config, x -> initializer = x);
       new DoubleParameter(DELTA_ID, 1e-7)//
           .addConstraint(CommonConstraints.GREATER_EQUAL_ZERO_DOUBLE) //
           .grab(config, x -> delta = x);
+      new IntParameter(MINITER_ID)//
+          .addConstraint(CommonConstraints.GREATER_EQUAL_ZERO_INT) //
+          .setOptional(true) //
+          .grab(config, x -> miniter = x);
       new IntParameter(KMeans.MAXITER_ID)//
           .addConstraint(CommonConstraints.GREATER_EQUAL_ZERO_INT) //
           .setOptional(true) //
@@ -465,8 +493,8 @@ public class EM<V extends NumberVector, M extends MeanModel> implements Clusteri
     }
 
     @Override
-    public EM<V, M> make() {
-      return new EM<>(k, delta, initializer, maxiter, prior, false);
+    public EM<O, M> make() {
+      return new EM<>(k, delta, initializer, miniter, maxiter, prior, false);
     }
   }
 }

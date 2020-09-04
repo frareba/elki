@@ -23,7 +23,10 @@ package elki.index.tree;
 import java.io.IOException;
 import java.io.ObjectInput;
 import java.io.ObjectOutput;
-import java.util.*;
+import java.util.Arrays;
+import java.util.Iterator;
+import java.util.List;
+import java.util.NoSuchElementException;
 
 import elki.logging.Logging;
 import elki.logging.LoggingConfiguration;
@@ -35,10 +38,12 @@ import elki.utilities.exceptions.AbortException;
  * Abstract superclass for nodes in an tree based index structure.
  *
  * @author Elke Achtert
+ *
  * @since 0.1
+ *
  * @param <E> the type of Entry used in the index
  */
-public abstract class AbstractNode<E extends Entry> extends AbstractExternalizablePage implements Node<E> {
+public abstract class AbstractNode<E> extends AbstractExternalizablePage implements Node<E> {
   /**
    * The number of entries in this node.
    */
@@ -47,7 +52,7 @@ public abstract class AbstractNode<E extends Entry> extends AbstractExternalizab
   /**
    * The entries (children) of this node.
    */
-  protected Entry[] entries;
+  protected Object[] entries;
 
   /**
    * Indicates whether this node is a leaf node.
@@ -71,7 +76,7 @@ public abstract class AbstractNode<E extends Entry> extends AbstractExternalizab
   public AbstractNode(int capacity, boolean isLeaf) {
     super();
     this.numEntries = 0;
-    this.entries = new Entry[capacity];
+    this.entries = new Object[capacity];
     this.isLeaf = isLeaf;
   }
 
@@ -152,54 +157,14 @@ public abstract class AbstractNode<E extends Entry> extends AbstractExternalizab
     return (isLeaf ? "LeafNode " : "DirNode ") + getPageID();
   }
 
-  /**
-   * Adds a new leaf entry to this node's children and returns the index of the
-   * entry in this node's children array. An UnsupportedOperationException will
-   * be thrown if the entry is not a leaf entry or this node is not a leaf node.
-   *
-   * @param entry the leaf entry to be added
-   * @return the index of the entry in this node's children array
-   * @throws UnsupportedOperationException if entry is not a leaf entry or this
-   *         node is not a leaf node
-   */
   @Override
-  public final int addLeafEntry(E entry) {
-    // entry is not a leaf entry
-    if(!(entry instanceof LeafEntry)) {
-      throw new UnsupportedOperationException("Entry is not a leaf entry!");
+  public final int addEntry(E entry) {
+    if((entry instanceof LeafEntry) != isLeaf()) {
+      throw new IllegalStateException("Inserting " + (entry instanceof LeafEntry ? "leaf" : "directory") //
+          + " entry into a " + (isLeaf() ? "leaf" : "directory") + "node.");
     }
-    // this is a not a leaf node
-    if(!isLeaf()) {
-      throw new UnsupportedOperationException("Node is not a leaf node!");
-    }
-
-    // leaf node
-    return addEntry(entry);
-  }
-
-  /**
-   * Adds a new directory entry to this node's children and returns the index of
-   * the entry in this node's children array. An UnsupportedOperationException
-   * will be thrown if the entry is not a directory entry or this node is not a
-   * directory node.
-   *
-   * @param entry the directory entry to be added
-   * @return the index of the entry in this node's children array
-   * @throws UnsupportedOperationException if entry is not a directory entry or
-   *         this node is not a directory node
-   */
-  @Override
-  public final int addDirectoryEntry(E entry) {
-    // entry is not a directory entry
-    if(entry instanceof LeafEntry) {
-      throw new UnsupportedOperationException("Entry is not a directory entry!");
-    }
-    // this is a not a directory node
-    if(isLeaf()) {
-      throw new UnsupportedOperationException("Node is not a directory node!");
-    }
-
-    return addEntry(entry);
+    entries[numEntries] = entry;
+    return numEntries++;
   }
 
   /**
@@ -235,38 +200,6 @@ public abstract class AbstractNode<E extends Entry> extends AbstractExternalizab
   }
 
   /**
-   * Returns a list of the entries.
-   *
-   * @return a list of the entries
-   *
-   * @deprecated Using this method means an extra copy - usually at the cost of
-   *             performance.
-   */
-  @SuppressWarnings("unchecked")
-  @Deprecated
-  public final List<E> getEntries() {
-    List<E> result = new ArrayList<>(numEntries);
-    for(Entry entry : entries) {
-      if(entry != null) {
-        result.add((E) entry);
-      }
-    }
-    return result;
-  }
-
-  /**
-   * Adds the specified entry to the entries array and increases the numEntries
-   * counter.
-   *
-   * @param entry the entry to be added
-   * @return the current number of entries
-   */
-  private int addEntry(E entry) {
-    entries[numEntries++] = entry;
-    return numEntries - 1;
-  }
-
-  /**
    * Remove entries according to the given mask.
    *
    * @param mask Mask to remove
@@ -279,15 +212,13 @@ public abstract class AbstractNode<E extends Entry> extends AbstractExternalizab
     int src = BitsUtil.nextSetBit(mask, dest);
     while(src < numEntries) {
       if(!BitsUtil.get(mask, src)) {
-        entries[dest] = entries[src];
-        dest++;
+        entries[dest++] = entries[src];
       }
       src++;
     }
     int rm = src - dest;
     while(dest < numEntries) {
-      entries[dest] = null;
-      dest++;
+      entries[dest++] = null;
     }
     numEntries -= rm;
   }
@@ -367,23 +298,19 @@ public abstract class AbstractNode<E extends Entry> extends AbstractExternalizab
       throw new AbortException("No bits set in splitting mask.");
     }
     // FIXME: use faster iteration/testing
-    int pos = dest;
-    while(pos < numEntries) {
+    for(int pos = dest; pos < numEntries; pos++) {
       if(BitsUtil.get(assignment, pos)) {
         // Move to new node
         newNode.addEntry(getEntry(pos));
       }
       else {
         // Move to new position
-        entries[dest] = entries[pos];
-        dest++;
+        entries[dest++] = entries[pos];
       }
-      pos++;
     }
     final int rm = numEntries - dest;
     while(dest < numEntries) {
-      entries[dest] = null;
-      dest++;
+      entries[dest++] = null;
     }
     numEntries -= rm;
   }

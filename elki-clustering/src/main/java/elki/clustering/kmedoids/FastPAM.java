@@ -22,8 +22,8 @@ package elki.clustering.kmedoids;
 
 import java.util.Arrays;
 
+import elki.clustering.kmeans.initialization.RandomlyChosen;
 import elki.clustering.kmedoids.initialization.KMedoidsInitialization;
-import elki.clustering.kmedoids.initialization.LAB;
 import elki.database.datastore.WritableIntegerDataStore;
 import elki.database.ids.*;
 import elki.database.query.distance.DistanceQuery;
@@ -64,7 +64,7 @@ import elki.utilities.optionhandling.parameters.DoubleParameter;
  * Erich Schubert, Peter J. Rousseeuw<br>
  * Faster k-Medoids Clustering: Improving the PAM, CLARA, and CLARANS
  * Algorithms<br>
- * preprint, to appear
+ * Proc. 12th Int. Conf. Similarity Search and Applications (SISAP'2019)
  *
  * @author Erich Schubert
  * @since 0.7.5
@@ -74,9 +74,9 @@ import elki.utilities.optionhandling.parameters.DoubleParameter;
 @Priority(Priority.IMPORTANT + 2)
 @Reference(authors = "Erich Schubert, Peter J. Rousseeuw", //
     title = "Faster k-Medoids Clustering: Improving the PAM, CLARA, and CLARANS Algorithms", //
-    booktitle = "preprint, to appear", //
-    url = "https://arxiv.org/abs/1810.05691", //
-    bibkey = "DBLP:journals/corr/abs-1810-05691")
+    booktitle = "Proc. 12th Int. Conf. Similarity Search and Applications (SISAP'2019)", //
+    url = "https://doi.org/10.1007/978-3-030-32047-8_16", //
+    bibkey = "DBLP:conf/sisap/SchubertR19")
 public class FastPAM<V> extends FastPAM1<V> {
   /**
    * The logger for this class.
@@ -170,12 +170,13 @@ public class FastPAM<V> extends FastPAM1<V> {
       DBIDArrayIter m = medoids.iter();
       ArrayModifiableDBIDs bestids = DBIDUtil.newArray(k);
       DBIDVar bestid = DBIDUtil.newVar();
-      double[] best = new double[k], cost = new double[k];
+      double[] best = new double[k];
+      double[] cost = new double[k], pcost = new double[k];
       int iteration = 0;
       while(iteration < maxiter || maxiter <= 0) {
         ++iteration;
         LOG.incrementProcessed(prog);
-        findBestSwaps(m, bestids, best, cost);
+        findBestSwaps(m, bestids, best, cost, pcost);
         // Convergence check
         int min = argmin(best);
         if(!(best[min] < -1e-12 * tc)) {
@@ -214,6 +215,7 @@ public class FastPAM<V> extends FastPAM1<V> {
       if(LOG.isStatistics()) {
         LOG.statistics(new LongStatistic(KEY + ".iterations", iteration));
         LOG.statistics(new LongStatistic(KEY + ".fast-swaps", fastswaps));
+        LOG.statistics(new DoubleStatistic(KEY + ".final-cost", tc));
       }
       // Cleanup
       for(DBIDIter it = ids.iter(); it.valid(); it.advance()) {
@@ -230,7 +232,8 @@ public class FastPAM<V> extends FastPAM1<V> {
      * @param best Storage for best cost
      * @param cost Scratch space for cost
      */
-    protected void findBestSwaps(DBIDArrayIter m, ArrayModifiableDBIDs bestids, double[] best, double[] cost) {
+    protected void findBestSwaps(DBIDArrayIter m, ArrayModifiableDBIDs bestids, double[] best, double[] cost, double[] pcost) {
+      updatePriorCost(pcost);
       Arrays.fill(best, Double.POSITIVE_INFINITY);
       // Iterate over all non-medoids:
       for(DBIDIter h = ids.iter(); h.valid(); h.advance()) {
@@ -238,13 +241,11 @@ public class FastPAM<V> extends FastPAM1<V> {
         if(DBIDUtil.equal(m.seek(assignment.intValue(h) & 0x7FFF), h)) {
           continue; // This is a medoid.
         }
-        // The cost we get back by making the non-medoid h medoid.
-        Arrays.fill(cost, -nearest.doubleValue(h));
-        computeReassignmentCost(h, cost);
-
+        System.arraycopy(pcost, 0, cost, 0, pcost.length);
+        double acc = computeReassignmentCost(h, cost);
         // Find the best possible swap for each medoid:
         for(int i = 0; i < cost.length; i++) {
-          final double costi = cost[i];
+          final double costi = cost[i] + acc;
           if(costi < best[i]) {
             best[i] = costi;
             bestids.set(i, h);
@@ -274,6 +275,9 @@ public class FastPAM<V> extends FastPAM1<V> {
 
     /**
      * Compute the reassignment cost of one swap.
+     * <p>
+     * This differs from the version in regular PAM by the bit mask operation
+     * only.
      *
      * @param h Current object to swap with the medoid
      * @param mnum Medoid number to be replaced
@@ -292,7 +296,6 @@ public class FastPAM<V> extends FastPAM1<V> {
         final double dist_h = distQ.distance(h, j);
         // Check if current medoid of j is removed:
         if((assignment.intValue(j) & 0x7FFF) == mnum) {
-          // distance(j, o) to second nearest / possible reassignment
           // Case 1b: j switches to new medoid, or to the second nearest:
           cost += Math.min(dist_h, second.doubleValue(j)) - distcur;
         }
@@ -329,7 +332,7 @@ public class FastPAM<V> extends FastPAM1<V> {
     @SuppressWarnings("rawtypes")
     @Override
     protected Class<? extends KMedoidsInitialization> defaultInitializer() {
-      return LAB.class;
+      return RandomlyChosen.class;
     }
 
     @Override

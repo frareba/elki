@@ -52,7 +52,7 @@ import elki.utilities.random.RandomFactory;
  * Erich Schubert, Peter J. Rousseeuw<br>
  * Faster k-Medoids Clustering: Improving the PAM, CLARA, and CLARANS
  * Algorithms<br>
- * preprint, to appear
+ * Proc. 12th Int. Conf. Similarity Search and Applications (SISAP'2019)
  *
  * @author Erich Schubert
  * @since 0.7.5
@@ -63,9 +63,9 @@ import elki.utilities.random.RandomFactory;
  */
 @Reference(authors = "Erich Schubert, Peter J. Rousseeuw", //
     title = "Faster k-Medoids Clustering: Improving the PAM, CLARA, and CLARANS Algorithms", //
-    booktitle = "preprint, to appear", //
-    url = "https://arxiv.org/abs/1810.05691", //
-    bibkey = "DBLP:journals/corr/abs-1810-05691")
+    booktitle = "Proc. 12th Int. Conf. Similarity Search and Applications (SISAP'2019)", //
+    url = "https://doi.org/10.1007/978-3-030-32047-8_16", //
+    bibkey = "DBLP:conf/sisap/SchubertR19")
 @Priority(Priority.IMPORTANT + 1)
 public class FastCLARANS<V> extends CLARANS<V> {
   /**
@@ -106,16 +106,17 @@ public class FastCLARANS<V> extends CLARANS<V> {
     // Setup cluster assignment store
     Assignment best = new Assignment(distQ, ids, k);
     Assignment curr = new Assignment(distQ, ids, k);
+    double[] pcost = new double[k];
 
     // 1. initialize
     double bestscore = Double.POSITIVE_INFINITY;
     FiniteProgress prog = LOG.isVerbose() ? new FiniteProgress("CLARANS sampling restarts", numlocal, LOG) : null;
     for(int i = 0; i < numlocal; i++) {
       // 2. choose random initial medoids
-      curr.medoids.clear();
-      curr.medoids.addDBIDs(DBIDUtil.randomSample(ids, k, rnd));
+      curr.medoids.clear().addDBIDs(DBIDUtil.randomSample(ids, k, rnd));
       // Cost of initial solution:
       double total = curr.assignToNearestCluster();
+      curr.computeRemovalCost(pcost);
 
       // 3. Set j to 1.
       int j = 1;
@@ -143,7 +144,7 @@ public class FastCLARANS<V> extends CLARANS<V> {
           // else: this must be the medoid.
         }
         // 5. check lower cost
-        double cost = curr.computeCostDifferential(cand);
+        double cost = curr.computeCostDifferential(cand, pcost);
         if(!(cost < -1e-12 * total)) {
           ++j; // 6. try again
           continue;
@@ -151,6 +152,7 @@ public class FastCLARANS<V> extends CLARANS<V> {
         total += cost; // cost is negative!
         // Swap:
         curr.performLastSwap(cand);
+        curr.computeRemovalCost(pcost);
         j = 1;
       }
       if(LOG.isStatistics()) {
@@ -168,7 +170,7 @@ public class FastCLARANS<V> extends CLARANS<V> {
     }
     LOG.ensureCompleted(prog);
     if(LOG.isStatistics()) {
-      LOG.statistics(new DoubleStatistic(getClass().getName() + ".cost", bestscore));
+      LOG.statistics(new DoubleStatistic(getClass().getName() + ".final-cost", bestscore));
     }
 
     ArrayModifiableDBIDs[] clusters = ClusteringAlgorithmUtil.partitionsFromIntegerLabels(ids, best.assignment, k);
@@ -188,9 +190,9 @@ public class FastCLARANS<V> extends CLARANS<V> {
    */
   protected static class Assignment extends CLARANS.Assignment {
     /**
-     * Array for storing the per-medoid costs.
+     * Array for storing the per-medoid loss.
      */
-    double[] cost;
+    double[] loss;
 
     /**
      * Last best medoid number
@@ -206,46 +208,54 @@ public class FastCLARANS<V> extends CLARANS<V> {
      */
     public Assignment(DistanceQuery<?> distQ, DBIDs ids, int k) {
       super(distQ, ids, k);
-      cost = new double[k];
+      loss = new double[k];
+    }
+
+    /**
+     * Precompute the costs of reassigning to the second closest medoid.
+     *
+     * @param pcost Output cost
+     */
+    protected void computeRemovalCost(double[] pcost) {
+      Arrays.fill(pcost, 0.);
+      for(DBIDIter j = ids.iter(); j.valid(); j.advance()) {
+        pcost[assignment.intValue(j)] += second.doubleValue(j) - nearest.doubleValue(j);
+      }
     }
 
     /**
      * Compute the reassignment cost, for one swap.
      *
-     * @param h Current object to swap with any medoid.
+     * @param h Current object to swap with any medoid
+     * @param pcost Prior cost for removing
      * @return Cost change
      */
-    protected double computeCostDifferential(DBIDRef h) {
-      Arrays.fill(cost, 0);
-      final int k = cost.length;
+    protected double computeCostDifferential(DBIDRef h, double[] pcost) {
+      System.arraycopy(pcost, 0, loss, 0, pcost.length);
+      double acc = 0.; // Cost accumulator for all
+      final int k = loss.length;
       // Compute costs of reassigning other objects j:
       for(DBIDIter j = ids.iter(); j.valid(); j.advance()) {
-        if(DBIDUtil.equal(h, j)) {
-          continue;
-        }
         // distance(j, i) to nearest medoid
         final double distcur = nearest.doubleValue(j);
+        // distance(j, k) to second nearest medoid
+        final double distsec = second.doubleValue(j);
         // distance(j, h) to new medoid
         final double dist_h = distQ.distance(h, j);
-        // current assignment of j
-        final int jcur = assignment.intValue(j);
-        // Check if current medoid of j is removed:
-        cost[jcur] += Math.min(dist_h, second.doubleValue(j)) - distcur;
-        final double change = dist_h - distcur;
-        if(change < 0) {
-          for(int mnum = 0; mnum < jcur; mnum++) {
-            cost[mnum] += change;
-          }
-          for(int mnum = jcur + 1; mnum < k; mnum++) {
-            cost[mnum] += change;
-          }
+        if(dist_h < distcur) {
+          acc += dist_h - distcur;
+          loss[assignment.intValue(j)] += distcur - distsec;
+        }
+        else if(dist_h < distsec) {
+          loss[assignment.intValue(j)] += dist_h - distsec;
         }
       }
-      double min = cost[0];
+      // Add shared costs when processing the cost anyway
+      double min = loss[0] += acc;
       lastbest = 0;
       for(int i = 1; i < k; i++) {
-        if(cost[i] < min) {
-          min = cost[i];
+        if(loss[i] < min) {
+          min = loss[i] += acc;
           lastbest = i;
         }
       }

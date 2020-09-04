@@ -205,8 +205,7 @@ public class COP<V extends NumberVector> implements OutlierAlgorithm {
     double[] scores = new double[dim];
     ModifiableDBIDs nids = DBIDUtil.newHashSet(k + 10);
     for(DBIDIter id = ids.iter(); id.valid(); id.advance()) {
-      nids.clear();
-      nids.addDBIDs(knnQuery.getKNN(id, k + 1));
+      nids.clear().addDBIDs(knnQuery.getKNN(id, k + 1));
       nids.remove(id); // Do not use query object
 
       computeCentroid(centroid, relation, nids);
@@ -221,7 +220,7 @@ public class COP<V extends NumberVector> implements OutlierAlgorithm {
           double dev = projected[d];
           // Scale with variance and accumulate
           sqdevs += dev * dev / evs[d];
-          scores[d] = 1 - ChiSquaredDistribution.cdf(sqdevs, d + 1);
+          scores[d] = 1 - ChiSquaredDistribution.cdf(sqdevs, d + 1.);
         }
       }
       else {

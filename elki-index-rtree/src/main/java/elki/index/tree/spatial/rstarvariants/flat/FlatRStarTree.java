@@ -71,8 +71,7 @@ public abstract class FlatRStarTree extends AbstractRStarTree<FlatRStarTreeNode,
     dirCapacity = nextPageID;
     root = createNewDirectoryNode();
     for(int i = 1; i < nextPageID; i++) {
-      FlatRStarTreeNode node = getNode(i);
-      root.addDirectoryEntry(createNewDirectoryEntry(node));
+      root.addEntry(createNewDirectoryEntry(getNode(i)));
     }
 
     if(LOG.isDebugging()) {
@@ -81,8 +80,8 @@ public abstract class FlatRStarTree extends AbstractRStarTree<FlatRStarTreeNode,
   }
 
   @Override
-  public FlatRStarTreeNode getRoot() {
-    return root;
+  public FlatRStarTreeNode getNode(int nodeID) {
+    return nodeID == getRootID() ? root : super.getNode(nodeID);
   }
 
   @Override
@@ -99,25 +98,28 @@ public abstract class FlatRStarTree extends AbstractRStarTree<FlatRStarTreeNode,
     if(!initialized) {
       initialize(spatialObjects.get(0));
     }
+    // create root
+    root = createNewDirectoryNode();
+    root.setPageID(getRootID());
+    writeNode(root);
     // create leaf nodes
-    getFile().setNextPageID(getRootID() + 1);
     List<SpatialEntry> nodes = createBulkLeafNodes(spatialObjects);
     int numNodes = nodes.size();
     if(LOG.isDebugging()) {
       LOG.debugFine("  numLeafNodes = " + numNodes);
     }
 
-    // create root
-    root = createNewDirectoryNode();
-    root.setPageID(getRootID());
+    root.increaseEntries(nodes.size());
     for(SpatialEntry entry : nodes) {
-      root.addDirectoryEntry(entry);
+      root.addEntry(entry);
     }
+    ((SpatialDirectoryEntry) getRootEntry()).setMBR(root.computeMBR());
+    writeNode(root);
     numNodes++;
     setHeight(2);
 
     if(LOG.isDebuggingFine()) {
-      LOG.debugFine("  root = " + getRoot() + "\n  numNodes = " + numNodes + "\n  height = " + getHeight());
+      LOG.debugFine("  root = " + root + "\n  numNodes = " + numNodes + "\n  height = " + getHeight());
     }
     doExtraIntegrityChecks();
   }
@@ -126,12 +128,14 @@ public abstract class FlatRStarTree extends AbstractRStarTree<FlatRStarTreeNode,
   protected void createEmptyRoot(SpatialEntry exampleLeaf) {
     root = createNewDirectoryNode();
     root.setPageID(getRootID());
+    writeNode(root);
 
-    getFile().setNextPageID(getRootID() + 1);
     FlatRStarTreeNode leaf = createNewLeafNode();
     writeNode(leaf);
+    assert leaf.getPageID() != root.getPageID() : "Page numbering inconsistent!?!";
     ModifiableHyperBoundingBox mbr = new ModifiableHyperBoundingBox(new double[exampleLeaf.getDimensionality()], new double[exampleLeaf.getDimensionality()]);
-    root.addDirectoryEntry(new SpatialDirectoryEntry(leaf.getPageID(), mbr));
+    root.addEntry(new SpatialDirectoryEntry(leaf.getPageID(), mbr));
+    writeNode(root);
 
     setHeight(2);
   }
@@ -141,8 +145,8 @@ public abstract class FlatRStarTree extends AbstractRStarTree<FlatRStarTreeNode,
     if(node.isLeaf()) {
       return node.getNumEntries() == leafCapacity;
     }
-    else if(node.getNumEntries() == node.getCapacity()) {
-      node.increaseEntries();
+    if(node.getNumEntries() == node.getCapacity()) {
+      node.increaseEntries(node.getCapacity() + 1);
     }
     return false;
   }

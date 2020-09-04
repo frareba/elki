@@ -128,9 +128,9 @@ public class KuhnMunkres {
     }
     this.rmark = new int[rowlen];
     this.cmark = csel.clone();
-    Arrays.fill(rmark, -1);
     // Iterative refinement:
-    for(long maxit = rowlen * collen; maxit >= 0 && selected < rowlen; maxit--) {
+    for(long maxit = rowlen * (long) collen; maxit >= 0 && selected < rowlen; maxit--) {
+      Arrays.fill(rmark, -1);
       while(true) {
         double h = findUncoveredMinimum(); // O(n²)
         debugLogMatrix(Level.FINEST, maxit, "Select min");
@@ -139,7 +139,6 @@ public class KuhnMunkres {
         if(!pivot()) {
           debugLogMatrix(Level.FINEST, maxit, "Update stars");
           updateStars();
-          Arrays.fill(rmark, -1);
           System.arraycopy(csel, 0, cmark, 0, csel.length);
           break;
         }
@@ -156,7 +155,7 @@ public class KuhnMunkres {
    * 
    * @param ocost Original cost matrix
    */
-  private void initialize(double[][] ocost) {
+  protected void initialize(double[][] ocost) {
     double[][] cost = this.cost = new double[ocost.length][];
     final int rowlen = ocost.length, collen = ocost[0].length;
     for(int i = 0; i < rowlen; i++) {
@@ -199,7 +198,7 @@ public class KuhnMunkres {
    * Select the last zero in each row to make an initial selection, which may
    * already yield a solution.
    */
-  private void initialCover() {
+  protected void initialCover() {
     final double[][] cost = this.cost;
     final int rowlen = cost.length, collen = cost[0].length;
     int[] rsel = this.rsel = new int[rowlen];
@@ -218,9 +217,6 @@ public class KuhnMunkres {
           break;
         }
       }
-    }
-    if(selected == rsel.length) {
-      return;
     }
   }
 
@@ -252,7 +248,7 @@ public class KuhnMunkres {
   }
 
   /**
-   * Remove cost h (if >0) found to be unavoidable.
+   * Remove cost h (if &gt; 0) found to be unavoidable.
    *
    * @param h Cost to remove
    */
@@ -328,7 +324,7 @@ public class KuhnMunkres {
     if(LOG.isLoggable(l)) {
       String padding = "      ";
       StringBuilder buf = new StringBuilder(cost.length * csel.length * 10 + 10) //
-          .append('#').append(1L + cost.length * csel.length - maxit) //
+          .append('#').append(1L + cost.length * (long) csel.length - maxit) //
           .append(' ').append(msg).append("\n");
       for(int i = 0; i < cost.length; i++) {
         for(int j = 0; j < csel.length; j++) {
@@ -358,8 +354,10 @@ public class KuhnMunkres {
         }
         buf.append(rmark != null && rmark[i] >= 0 ? "--\n" : "\n");
       }
-      for(int j = 0; j < (cmark != null ? cmark.length : 0); j++) {
-        buf.append(cmark[j] < 0 ? "         " : "    |    ");
+      if(cmark != null) {
+        for(int j = 0; j < cmark.length; j++) {
+          buf.append(cmark[j] < 0 ? "         " : "    |    ");
+        }
       }
       LOG.log(l, buf.toString());
     }

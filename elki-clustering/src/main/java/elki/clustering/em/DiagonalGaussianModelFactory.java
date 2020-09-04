@@ -24,13 +24,16 @@ import java.util.ArrayList;
 import java.util.List;
 
 import elki.clustering.kmeans.initialization.KMeansInitialization;
+import elki.clustering.kmeans.initialization.RandomlyChosen;
 import elki.data.NumberVector;
 import elki.data.model.EMModel;
-import elki.database.ids.DBIDIter;
 import elki.database.relation.Relation;
-import elki.database.relation.RelationUtil;
-import elki.distance.NumberVectorDistance;
+import elki.distance.minkowski.SquaredEuclideanDistance;
 import elki.math.MeanVariance;
+import elki.utilities.optionhandling.Parameterizer;
+import elki.utilities.optionhandling.parameterization.Parameterization;
+import elki.utilities.optionhandling.parameters.ObjectParameter;
+
 import net.jafama.FastMath;
 
 /**
@@ -43,40 +46,38 @@ import net.jafama.FastMath;
  * @since 0.7.0
  *
  * @has - - - DiagonalGaussianModel
- *
- * @param <V> vector type
  */
-public class DiagonalGaussianModelFactory<V extends NumberVector> extends AbstractEMModelFactory<V, EMModel> {
+public class DiagonalGaussianModelFactory implements EMClusterModelFactory<NumberVector, EMModel> {
+  /**
+   * Class to choose the initial means
+   */
+  protected KMeansInitialization initializer;
+
   /**
    * Constructor.
    *
    * @param initializer Class for choosing the inital seeds.
    */
   public DiagonalGaussianModelFactory(KMeansInitialization initializer) {
-    super(initializer);
+    super();
+    this.initializer = initializer;
   }
 
   @Override
-  public List<DiagonalGaussianModel> buildInitialModels(Relation<V> relation, int k, NumberVectorDistance<? super V> df) {
-    double[][] initialMeans = initializer.chooseInitialMeans(relation, k, df);
+  public List<DiagonalGaussianModel> buildInitialModels(Relation<? extends NumberVector> relation, int k) {
+    double[][] initialMeans = initializer.chooseInitialMeans(relation, k, SquaredEuclideanDistance.STATIC);
     assert (initialMeans.length == k);
-    final int dim = RelationUtil.dimensionality(relation);
-    MeanVariance[] mvs = MeanVariance.newArray(dim);
-    for(DBIDIter it = relation.iterDBIDs(); it.valid(); it.advance()) {
-      NumberVector v = relation.get(it);
-      for(int d = 0; d < dim; d++) {
-        mvs[d].put(v.doubleValue(d));
-      }
-    }
-    double[] variances = new double[dim];
+    MeanVariance[] mvs = MeanVariance.of(relation);
+    double[] variances = new double[mvs.length];
     final double f = FastMath.pow(k, -2. / variances.length);
-    for(int d = 0; d < dim; d++) {
-      variances[d] = mvs[d].getSampleVariance() * f;
+    for(int d = 0; d < mvs.length; d++) {
+      final double v = mvs[d].getPopulationVariance();
+      variances[d] = v > 0 ? v * f : 1e-10;
     }
 
     List<DiagonalGaussianModel> models = new ArrayList<>(k);
     for(double[] nv : initialMeans) {
-      models.add(new DiagonalGaussianModel(1. / k, nv, variances.clone()));
+      models.add(new DiagonalGaussianModel(1. / k, nv, variances));
     }
     return models;
   }
@@ -87,13 +88,22 @@ public class DiagonalGaussianModelFactory<V extends NumberVector> extends Abstra
    * @author Erich Schubert
    *
    * @hidden
-   *
-   * @param <V> Vector type
    */
-  public static class Par<V extends NumberVector> extends AbstractEMModelFactory.Par<V> {
+  public static class Par implements Parameterizer {
+    /**
+     * Initialization method
+     */
+    protected KMeansInitialization initializer;
+
     @Override
-    public DiagonalGaussianModelFactory<V> make() {
-      return new DiagonalGaussianModelFactory<>(initializer);
+    public void configure(Parameterization config) {
+      new ObjectParameter<KMeansInitialization>(INIT_ID, KMeansInitialization.class, RandomlyChosen.class) //
+          .grab(config, x -> initializer = x);
+    }
+
+    @Override
+    public DiagonalGaussianModelFactory make() {
+      return new DiagonalGaussianModelFactory(initializer);
     }
   }
 }

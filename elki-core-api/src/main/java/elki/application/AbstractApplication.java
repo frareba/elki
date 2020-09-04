@@ -20,7 +20,9 @@
  */
 package elki.application;
 
+import java.net.URI;
 import java.nio.file.Path;
+import java.nio.file.Paths;
 import java.util.Arrays;
 import java.util.Collection;
 import java.util.Properties;
@@ -75,13 +77,14 @@ public abstract class AbstractApplication {
    * Get the version number from the properties.
    */
   static {
-    String version = "DEVELOPMENT";
+    String version;
     try {
       Properties prop = new Properties();
       prop.load(AbstractApplication.class.getClassLoader().getResourceAsStream("META-INF/elki.properties"));
       version = prop.getProperty("elki.version");
     }
     catch(Exception e) {
+      version = "DEVELOPMENT";
     }
     VERSION = version;
   }
@@ -122,11 +125,9 @@ public abstract class AbstractApplication {
   public static void runCLIApplication(Class<?> cls, String[] args) {
     SerializedParameterization params = new SerializedParameterization(args);
     Flag helpF = new Flag(Par.HELP_ID);
-    helpF.grab(params, x -> {
-    });
+    params.grab(helpF);
     Flag helpLongF = new Flag(Par.HELP_LONG_ID);
-    helpLongF.grab(params, x -> {
-    });
+    params.grab(helpLongF);
     try {
       ClassParameter<Object> descriptionP = new ClassParameter<Object>(Par.DESCRIPTION_ID, Object.class) //
           .setOptional(true);
@@ -137,7 +138,7 @@ public abstract class AbstractApplication {
       }
       // Parse debug parameter
       Par.applyLoggingLevels(Par.parseDebugParameter(params));
-      if(params.getErrors().size() > 0) {
+      if(!params.getErrors().isEmpty()) {
         params.logAndClearReportedErrors();
         System.exit(1);
       }
@@ -156,11 +157,15 @@ public abstract class AbstractApplication {
         LOG.verbose(usage(config.getAllParameters()));
         System.exit(1);
       }
-      if(params.getErrors().size() > 0) {
+      if(!params.getErrors().isEmpty()) {
         LoggingConfiguration.setVerbose(Level.VERBOSE);
         LOG.verbose("ERROR: The following configuration errors prevented execution:");
         for(ParameterException e : params.getErrors()) {
-          LOG.verbose(e.getMessage() + "\n");
+          if (LOG.isDebugging()) {
+            LOG.debug(e.getMessage(), e);
+          } else {
+            LOG.verbose(e.getMessage());
+          }
         }
         params.logUnusedParameters();
         LOG.verbose("Stopping execution because of configuration errors above.");
@@ -225,7 +230,7 @@ public abstract class AbstractApplication {
     }
     try {
       LoggingConfiguration.setVerbose(Level.VERBOSE);
-      LOG.verbose(OptionUtil.describeParameterizable(new StringBuilder(), descriptionClass, FormatUtil.getConsoleWidth(), "").toString());
+      LOG.verbose(OptionUtil.describeParameterizable(new StringBuilder(), descriptionClass, FormatUtil.getConsoleWidth()).toString());
     }
     catch(Exception e) {
       LOG.exception("Error instantiating class to describe.", e.getCause());
@@ -261,17 +266,17 @@ public abstract class AbstractApplication {
     /**
      * Flag to obtain help-message.
      */
-    public static final OptionID HELP_ID = new OptionID("h", "Request a help-message, either for the main-routine or for any specified algorithm. " + "Causes immediate stop of the program.");
+    public static final OptionID HELP_ID = new OptionID("h", "Request a help-message, either for the main-routine or for any specified algorithm. Causes immediate stop of the program.");
 
     /**
      * Flag to obtain help-message.
      */
-    public static final OptionID HELP_LONG_ID = new OptionID("help", "Request a help-message, either for the main-routine or for any specified algorithm. " + "Causes immediate stop of the program.");
+    public static final OptionID HELP_LONG_ID = new OptionID("help", "Request a help-message, either for the main-routine or for any specified algorithm. Causes immediate stop of the program.");
 
     /**
      * Optional Parameter to specify a class to obtain a description for.
      */
-    public static final OptionID DESCRIPTION_ID = new OptionID("description", "Class to obtain a description of. " + "Causes immediate stop of the program.");
+    public static final OptionID DESCRIPTION_ID = new OptionID("description", "Class to obtain a description of. Causes immediate stop of the program.");
 
     /**
      * Optional Parameter to specify a class to enable debugging for.
@@ -295,7 +300,7 @@ public abstract class AbstractApplication {
         Flag verbose2F = new Flag(Par.VERBOSE_ID);
         return (config.grab(verbose2F) && verbose2F.isTrue()) ? Level.VERYVERBOSE : Level.VERBOSE;
       }
-      return Level.WARNING;
+      return java.util.logging.Level.WARNING;
     }
 
     /**
@@ -325,7 +330,7 @@ public abstract class AbstractApplication {
               chunks = new String[] { LoggingConfiguration.TOPLEVEL_PACKAGE, chunks[0] };
             }
             catch(IllegalArgumentException e) {
-              chunks = new String[] { chunks[0], Level.FINEST.getName() };
+              chunks = new String[] { chunks[0], java.util.logging.Level.FINEST.getName() };
             }
           }
           else {
@@ -384,7 +389,7 @@ public abstract class AbstractApplication {
      */
     protected Path getParameterOutputFile(Parameterization config, String description) {
       FileParameter outputP = new FileParameter(new OptionID(OUTPUT_ID.getName(), description), FileParameter.FileType.OUTPUT_FILE);
-      return outputP.grab(config, null) ? outputP.getValue() : null;
+      return outputP.grab(config, null) ? Paths.get(outputP.getValue()) : null;
     }
 
     /**
@@ -393,7 +398,7 @@ public abstract class AbstractApplication {
      * @param config Options
      * @return Input file
      */
-    protected Path getParameterInputFile(Parameterization config) {
+    protected URI getParameterInputFile(Parameterization config) {
       return getParameterInputFile(config, "Input filename.");
     }
 
@@ -404,7 +409,7 @@ public abstract class AbstractApplication {
      * @param description Description
      * @return Input file
      */
-    protected Path getParameterInputFile(Parameterization config, String description) {
+    protected URI getParameterInputFile(Parameterization config, String description) {
       FileParameter inputP = new FileParameter(new OptionID(INPUT_ID.getName(), description), FileParameter.FileType.INPUT_FILE);
       return inputP.grab(config, null) ? inputP.getValue() : null;
     }

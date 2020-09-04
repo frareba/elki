@@ -27,22 +27,19 @@ import org.junit.Test;
 import elki.database.ids.DBIDUtil;
 import elki.database.ids.HashSetModifiableDBIDs;
 import elki.database.ids.ModifiableDoubleDBIDList;
-import elki.evaluation.scores.adapter.DBIDsTest;
+import elki.evaluation.scores.ROCEvaluation.ROCurve;
 import elki.evaluation.scores.adapter.DistanceResultAdapter;
 import elki.math.geometry.XYCurve;
 
 /**
- * Test to validate ROC curve computation.
+ * Test to validate receiver operating curve computation.
  * 
  * @author Erich Schubert
  * @since 0.7.0
  */
 public class ROCEvaluationTest {
-  /**
-   * Test ROC curve generation, including curve simplification
-   */
   @Test
-  public void testROCCurve() {
+  public void testROCurve() {
     HashSetModifiableDBIDs positive = DBIDUtil.newHashSet();
     positive.add(DBIDUtil.importInteger(1));
     positive.add(DBIDUtil.importInteger(2));
@@ -62,13 +59,10 @@ public class ROCEvaluationTest {
     distances.add(5.0, DBIDUtil.importInteger(9)); // - 1.0,.8 ++
     distances.add(6.0, DBIDUtil.importInteger(5)); // + 1.0,1. ++
 
-    XYCurve roccurve = ROCEvaluation.materializeROC(new DBIDsTest(positive), new DistanceResultAdapter(distances.iter()));
-    // System.err.println(roccurve);
-    assertEquals("ROC curve too complex", 6, roccurve.size());
-
-    double auc = XYCurve.areaUnderCurve(roccurve);
-    assertEquals("ROC AUC (curve) not correct.", 0.6, auc, 1e-14);
-    double auc2 = new ROCEvaluation().evaluate(positive, distances);
-    assertEquals("ROC AUC (direct) not correct.", 0.6, auc2, 1e-14);
+    ROCurve curve = ROCEvaluation.materializeROC(new DistanceResultAdapter(positive, distances.iter(), distances.size()));
+    assertEquals("ROC curve too complex", 6, curve.size());
+    assertEquals("AUROC (cached) not correct.", 0.6, curve.getAUC(), 1e-14);
+    assertEquals("AUROC (direct) not correct.", 0.6, new ROCEvaluation().evaluate(positive, distances), 1e-14);
+    assertEquals("AUROC (curve) not correct.", 0.6, XYCurve.areaUnderCurve(curve), 1e-14);
   }
 }

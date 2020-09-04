@@ -23,11 +23,10 @@ package elki.database.ids.integer;
 import java.util.Arrays;
 
 import elki.database.ids.DBIDRef;
-import elki.database.ids.DoubleDBIDListIter;
-import elki.database.ids.DoubleDBIDPair;
+import elki.database.ids.DoubleDBIDIter;
 import elki.database.ids.KNNHeap;
-import elki.utilities.datastructures.heap.DoubleIntegerHeap;
 import elki.utilities.datastructures.heap.DoubleIntegerMaxHeap;
+
 import net.jafama.FastMath;
 
 /**
@@ -39,16 +38,11 @@ import net.jafama.FastMath;
  * @has - - - DoubleIntegerDBIDKNNList
  * @composed - - - DoubleIntegerMaxHeap
  */
-class DoubleIntegerDBIDKNNHeap implements KNNHeap {
+class DoubleIntegerDBIDKNNHeap extends DoubleIntegerDBIDHeap implements KNNHeap {
   /**
    * k for this heap.
    */
   private final int k;
-
-  /**
-   * The main heap.
-   */
-  private final DoubleIntegerMaxHeap heap;
 
   /**
    * List to track ties.
@@ -73,13 +67,11 @@ class DoubleIntegerDBIDKNNHeap implements KNNHeap {
   /**
    * Constructor.
    *
-   * @param k
-   *        Size of knn.
+   * @param k Size of knn.
    */
   protected DoubleIntegerDBIDKNNHeap(int k) {
-    super();
+    super(new DoubleIntegerMaxHeap(k));
     this.k = k;
-    this.heap = new DoubleIntegerMaxHeap(k);
     this.ties = new int[INITIAL_TIES_SIZE];
   }
 
@@ -95,15 +87,26 @@ class DoubleIntegerDBIDKNNHeap implements KNNHeap {
 
   @Override
   public final double insert(final double distance, final DBIDRef id) {
-    if(heap.size() < k) {
-      heap.add(distance, id.internalGetIndex());
+    if(super.size() < k) {
+      super.insert(distance, id);
       // Update kdist if size == k!
-      return (heap.size() >= k) ? kdist = heap.peekKey() : kdist;
+      return (super.size() >= k) ? kdist = super.peekKey() : kdist;
     }
-    // Tied with top:
+    // Better than top
     if(distance < kdist) {
       // Old top element: (kdist, previd)
-      updateHeap(distance, id.internalGetIndex());
+      final double prevdist = kdist;
+      assert kdist == super.peekKey();
+      final int previd = super.internalGetIndex();
+      super.replaceTopElement(distance, id);
+      kdist = super.peekKey();
+      // If the kdist improved, zap ties.
+      if(kdist < prevdist) {
+        numties = 0;
+      }
+      else {
+        addToTies(previd);
+      }
     }
     else if(distance == kdist) {
       addToTies(id.internalGetIndex());
@@ -112,54 +115,14 @@ class DoubleIntegerDBIDKNNHeap implements KNNHeap {
   }
 
   @Override
-  public void insert(final DoubleDBIDPair e) {
-    final double distance = e.doubleValue();
-    final int iid = e.internalGetIndex();
-    if(heap.size() < k) {
-      heap.add(distance, iid);
-      if(heap.size() >= k) {
-        kdist = heap.peekKey();
-      }
-      return;
-    }
-    // Tied with top:
-    if(distance >= kdist) {
-      if(distance == kdist) {
-        addToTies(iid);
-      }
-      return;
-    }
-    // Old top element: (kdist, previd)
-    updateHeap(distance, iid);
-  }
-
-  /**
-   * Do a full update for the heap.
-   *
-   * @param distance
-   *        Distance
-   * @param iid
-   *        Object id
-   */
-  private void updateHeap(final double distance, final int iid) {
-    final double prevdist = kdist;
-    final int previd = heap.peekValue();
-    heap.replaceTopElement(distance, iid);
-    kdist = heap.peekKey();
-    // If the kdist improved, zap ties.
-    if(kdist < prevdist) {
-      numties = 0;
-    }
-    else {
-      addToTies(previd);
-    }
+  public double insert(double distance, DBIDRef id, int max) {
+    throw new UnsupportedOperationException("You cannot override the k of kNN heaps.");
   }
 
   /**
    * Ensure the ties array has capacity for at least one more element.
    *
-   * @param id
-   *        Id to add
+   * @param id Id to add
    */
   private void addToTies(int id) {
     if(ties.length == numties) {
@@ -172,34 +135,34 @@ class DoubleIntegerDBIDKNNHeap implements KNNHeap {
   /**
    * Pop the topmost element.
    */
-  protected void pop() {
+  public void poll() {
     if(numties > 0) {
       --numties;
     }
     else {
-      heap.poll();
+      super.poll();
     }
   }
 
   @Override
   public int size() {
-    return heap.size() + numties;
+    return super.size() + numties;
   }
 
   @Override
   public boolean isEmpty() {
-    return heap.isEmpty();
+    return super.isEmpty();
   }
 
   @Override
   public void clear() {
-    heap.clear();
+    super.clear();
     numties = 0;
   }
 
   @Override
   public DoubleIntegerDBIDKNNList toKNNList() {
-    final int hsize = heap.size();
+    final int hsize = super.size();
     DoubleIntegerDBIDKNNList ret = new DoubleIntegerDBIDKNNList(k, hsize + numties);
     // Add ties:
     for(int i = 0; i < numties; i++) {
@@ -207,9 +170,9 @@ class DoubleIntegerDBIDKNNHeap implements KNNHeap {
       ret.ids[hsize + i] = ties[i];
     }
     for(int j = hsize - 1; j >= 0; j--) {
-      ret.dists[j] = heap.peekKey();
-      ret.ids[j] = heap.peekValue();
-      heap.poll();
+      ret.dists[j] = super.peekKey();
+      ret.ids[j] = super.internalGetIndex();
+      super.poll();
     }
     ret.size = hsize + numties;
     return ret;
@@ -217,7 +180,7 @@ class DoubleIntegerDBIDKNNHeap implements KNNHeap {
 
   @Override
   public DoubleIntegerDBIDKNNList toKNNListSqrt() {
-    final int hsize = heap.size();
+    final int hsize = super.size();
     DoubleIntegerDBIDKNNList ret = new DoubleIntegerDBIDKNNList(k, hsize + numties);
     // Add ties:
     double kdist = numties > 0 ? FastMath.sqrt(this.kdist) : 0.;
@@ -226,30 +189,22 @@ class DoubleIntegerDBIDKNNHeap implements KNNHeap {
       ret.ids[hsize + i] = ties[i];
     }
     for(int j = hsize - 1; j >= 0; j--) {
-      ret.dists[j] = FastMath.sqrt(heap.peekKey());
-      ret.ids[j] = heap.peekValue();
-      heap.poll();
+      ret.dists[j] = FastMath.sqrt(super.peekKey());
+      ret.ids[j] = super.internalGetIndex();
+      super.poll();
     }
     ret.size = hsize + numties;
     return ret;
   }
 
-  /**
-   * Peek the topmost distance.
-   *
-   * @return distance
-   */
-  protected double peekDistance() {
-    return (numties > 0) ? kdist : heap.peekKey();
+  @Override
+  public double peekKey() {
+    return super.isEmpty() ? Double.NaN : super.peekKey();
   }
 
-  /**
-   * Peek the topmost internal ID.
-   *
-   * @return internal id
-   */
-  protected int peekInternalDBID() {
-    return (numties > 0) ? ties[numties - 1] : heap.peekValue();
+  @Override
+  public int internalGetIndex() {
+    return numties > 0 ? ties[numties - 1] : super.isEmpty() ? Integer.MIN_VALUE : super.internalGetIndex();
   }
 
   @Override
@@ -260,12 +215,25 @@ class DoubleIntegerDBIDKNNHeap implements KNNHeap {
         return true;
       }
     }
-    return heap.containsValue(q);
+    return super.contains(o);
   }
 
   @Override
-  public DoubleDBIDListIter unorderedIterator() {
-    return new UnorderedIter();
+  public DoubleDBIDIter unorderedIterator() {
+    return new UnorderedIter(super.unorderedIterator());
+  }
+
+  @Override
+  public String toString() {
+    StringBuilder buf = new StringBuilder(size() * 20 + 20).append("KNNHeap[");
+    DoubleDBIDIter iter = this.unorderedIterator();
+    if(iter.valid()) {
+      buf.append(iter.doubleValue()).append(':').append(iter.internalGetIndex());
+    }
+    while(iter.advance().valid()) {
+      buf.append(',').append(iter.doubleValue()).append(':').append(iter.internalGetIndex());
+    }
+    return buf.append(']').toString();
   }
 
   /**
@@ -273,20 +241,29 @@ class DoubleIntegerDBIDKNNHeap implements KNNHeap {
    *
    * @author Erich Schubert
    */
-  private class UnorderedIter implements DoubleDBIDListIter {
+  private class UnorderedIter implements DoubleDBIDIter {
     /**
      * Iterator of the real heap.
      */
-    private DoubleIntegerHeap.UnsortedIter it = heap.unsortedIter();
+    private DoubleDBIDIter it;
 
     /**
      * Position in ties.
      */
     private int t = 0;
 
+    /**
+     * Constructor.
+     *
+     * @param it Parent iterator
+     */
+    public UnorderedIter(DoubleDBIDIter it) {
+      this.it = it;
+    }
+
     @Override
     public int internalGetIndex() {
-      return it.valid() ? it.getValue() : ties[t];
+      return it.valid() ? it.internalGetIndex() : ties[t];
     }
 
     @Override
@@ -295,17 +272,12 @@ class DoubleIntegerDBIDKNNHeap implements KNNHeap {
     }
 
     @Override
-    public int getOffset() {
-      throw new UnsupportedOperationException();
-    }
-
-    @Override
     public double doubleValue() {
-      return it.valid() ? it.getKey() : kdist;
+      return it.valid() ? it.doubleValue() : kdist;
     }
 
     @Override
-    public DoubleDBIDListIter advance() {
+    public DoubleDBIDIter advance() {
       if(it.valid()) {
         it.advance();
       }
@@ -313,24 +285,6 @@ class DoubleIntegerDBIDKNNHeap implements KNNHeap {
         ++t;
       }
       return this;
-    }
-
-    @Override
-    public DoubleDBIDListIter advance(int count) {
-      while(count-- > 0) {
-        advance();
-      }
-      return this;
-    }
-
-    @Override
-    public DoubleDBIDListIter retract() {
-      throw new UnsupportedOperationException();
-    }
-
-    @Override
-    public DoubleDBIDListIter seek(int off) {
-      throw new UnsupportedOperationException();
     }
   }
 }

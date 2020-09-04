@@ -21,12 +21,12 @@
 package elki.utilities.io;
 
 import java.io.*;
+import java.net.URI;
 import java.net.URL;
 import java.net.URLConnection;
-import java.nio.file.Files;
-import java.nio.file.NoSuchFileException;
-import java.nio.file.Path;
-import java.nio.file.Paths;
+import java.nio.file.*;
+import java.nio.file.FileSystem;
+import java.util.Collections;
 import java.util.zip.GZIPInputStream;
 
 import elki.logging.LoggingConfiguration;
@@ -76,6 +76,66 @@ public final class FileUtil {
   }
 
   /**
+   * Open a file identified by an URI for reading.
+   * 
+   * @param file File
+   * @param opts Open options
+   * @return File input stream
+   * @throws IOException on error
+   */
+  public static InputStream open(URI file, OpenOption... opts) throws IOException {
+    if(file == null) {
+      throw new IOException("Cannot open 'null' file.");
+    }
+    if("file".equals(file.getScheme())) {
+      return tryGzipInput(Files.newInputStream(Paths.get(file), opts));
+    }
+    FileSystem fs;
+    try {
+      fs = FileSystems.getFileSystem(file);
+    }
+    catch(FileSystemNotFoundException e) {
+      // Do not close this FileSystem, this will break reading from jar files
+      fs = FileSystems.newFileSystem(file, Collections.emptyMap());
+    }
+    catch(IllegalArgumentException e) {
+      throw new IOException(e.getMessage(), e);
+    }
+    return tryGzipInput(Files.newInputStream(fs.provider().getPath(file), opts));
+  }
+
+  /**
+   * Check if the file/resource identified by an URI exists.
+   *
+   * @param file File URI
+   * @return {@code true} if the file exists.
+   */
+  public static boolean exists(URI file) {
+    if(file == null) {
+      return false;
+    }
+    if("file".equals(file.getScheme())) {
+      return Paths.get(file).toFile().exists();
+    }
+    try {
+      return Files.exists(FileSystems.getFileSystem(file).provider().getPath(file));
+    }
+    catch(FileSystemNotFoundException e) {
+      try {
+        // Do not close this FileSystem, this will break reading from jar files
+        return Files.exists(FileSystems.newFileSystem(file, Collections.emptyMap()).provider().getPath(file));
+      }
+      catch(IOException e2) {
+        return false;
+      }
+    }
+    catch(IllegalArgumentException e) {
+      // UnixFileSystemProvider could throw this
+      return false;
+    }
+  }
+
+  /**
    * Try to open a file, first trying the file system, then falling back to the
    * classpath.
    * 
@@ -122,6 +182,9 @@ public final class FileUtil {
    * @throws IOException on IO error
    */
   public static InputStream tryGzipInput(InputStream in) throws IOException {
+    if(in instanceof GZIPInputStream) {
+      return in; // We do not expect double-gzip input.
+    }
     // try autodetecting gzip compression.
     if(!in.markSupported()) {
       PushbackInputStream pb = new PushbackInputStream(in, 16);
@@ -152,34 +215,27 @@ public final class FileUtil {
       return f;
     }
     // Try with base directory
-    if(basedir != null) {
-      if((f = new File(basedir, name)).exists()) {
-        return f;
-      }
+    if(basedir != null && (f = new File(basedir, name)).exists()) {
+      return f;
     }
     // try stripping whitespace
     String name2;
-    if(!name.equals(name2 = name.trim())) {
-      if((f = locateFile(name2, basedir)) != null) {
-        return f;
-      }
+    if(!name.equals(name2 = name.trim()) && (f = locateFile(name2, basedir)) != null) {
+      return f;
     }
     // try substituting path separators
-    if(!name.equals(name2 = name.replace('/', File.separatorChar))) {
-      if((f = locateFile(name2, basedir)) != null) {
-        return f;
-      }
+    if(!name.equals(name2 = name.replace('/', File.separatorChar)) && //
+        (f = locateFile(name2, basedir)) != null) {
+      return f;
     }
-    if(!name.equals(name2 = name.replace('\\', File.separatorChar))) {
-      if((f = locateFile(name2, basedir)) != null) {
-        return f;
-      }
+    if(!name.equals(name2 = name.replace('\\', File.separatorChar)) && //
+        (f = locateFile(name2, basedir)) != null) {
+      return f;
     }
     // try stripping extra characters, such as quotes.
-    if(name.length() > 2 && name.charAt(0) == '"' && name.charAt(name.length() - 1) == '"') {
-      if((f = locateFile(name.substring(1, name.length() - 1), basedir)) != null) {
-        return f;
-      }
+    if(name.length() > 2 && name.charAt(0) == '"' && name.charAt(name.length() - 1) == '"' && //
+        (f = locateFile(name.substring(1, name.length() - 1), basedir)) != null) {
+      return f;
     }
     return null;
   }

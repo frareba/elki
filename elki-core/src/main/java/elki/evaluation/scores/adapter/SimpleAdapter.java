@@ -21,36 +21,48 @@
 package elki.evaluation.scores.adapter;
 
 import elki.database.ids.DBIDIter;
-import elki.database.ids.DBIDRef;
-import elki.evaluation.scores.ScoreEvaluation.ScoreIter;
+import elki.database.ids.DBIDs;
+import elki.evaluation.scores.ScoreEvaluation;
 
 /**
- * This adapter can be used for an arbitrary collection of Integers, and uses
- * that id1.compareTo(id2) != 0 for id1 != id2 to satisfy the comparability.
- * 
+ * This adapter can be used for an arbitrary collection of DBIDs, and does hence
+ * not have a notion of ties.
+ * <p>
  * Note that of course, no id should occur more than once.
- * 
- * The ROC values would be incorrect then anyway!
  * 
  * @author Erich Schubert
  * @since 0.7.0
  * 
  * @composed - - - DBIDIter
  */
-public class SimpleAdapter implements ScoreIter, DBIDRefIter {
+public class SimpleAdapter implements ScoreEvaluation.Adapter {
+  /**
+   * Set of positive examples.
+   */
+  private DBIDs set;
+
   /**
    * Original Iterator
    */
   private DBIDIter iter;
 
   /**
+   * Number of IDs
+   */
+  private int size;
+
+  /**
    * Constructor
    * 
+   * @param set Set of positive examples
    * @param iter Iterator for object IDs
+   * @param size Number of IDs
    */
-  public SimpleAdapter(DBIDIter iter) {
+  public SimpleAdapter(DBIDs set, DBIDIter iter, int size) {
     super();
+    this.set = set;
     this.iter = iter;
+    this.size = size;
   }
 
   @Override
@@ -69,20 +81,18 @@ public class SimpleAdapter implements ScoreIter, DBIDRefIter {
     return false; // No information.
   }
 
-  @Deprecated
   @Override
-  public int hashCode() {
-    return super.hashCode();
-  }
-
-  @Deprecated
-  @Override
-  public boolean equals(Object obj) {
-    return super.equals(obj);
+  public boolean test() {
+    return set.contains(iter);
   }
 
   @Override
-  public DBIDRef getRef() {
-    return iter;
+  public int numPositive() {
+    return set.size();
+  }
+
+  @Override
+  public int numTotal() {
+    return size;
   }
 }

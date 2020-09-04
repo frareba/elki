@@ -36,11 +36,11 @@ import net.jafama.FastMath;
  * @author Erich Schubert
  * @since 0.7.0
  */
-public class DiagonalGaussianModel implements EMClusterModel<EMModel> {
+public class DiagonalGaussianModel implements EMClusterModel<NumberVector, EMModel> {
   /**
-   * Constant to avoid singular matrixes.
+   * Constant to avoid zero values.
    */
-  private static final double SINGULARITY_CHEAT = 1E-9;
+  private static final double SINGULARITY_CHEAT = 1E-10;
 
   /**
    * Mean vector.
@@ -63,12 +63,12 @@ public class DiagonalGaussianModel implements EMClusterModel<EMModel> {
   double logNorm, logNormDet;
 
   /**
-   * Weight aggregation sum
+   * Weight aggregation sum.
    */
   double weight, wsum;
 
   /**
-   * For the MAP version only, a prior diagonal
+   * Diagonal prior variances.
    */
   double[] priordiag;
 
@@ -87,22 +87,24 @@ public class DiagonalGaussianModel implements EMClusterModel<EMModel> {
    * 
    * @param weight Cluster weight
    * @param mean Initial mean
-   * @param variances Initial variances.
+   * @param vars Initial variances
    */
-  public DiagonalGaussianModel(double weight, double[] mean, double[] variances) {
+  public DiagonalGaussianModel(double weight, double[] mean, double[] vars) {
     this.weight = weight;
     final int dim = mean.length;
     this.mean = mean;
     this.logNorm = MathUtil.LOGTWOPI * mean.length;
     this.logNormDet = FastMath.log(weight) - .5 * logNorm;
     this.nmea = new double[dim];
-    if(variances == null) {
-      this.variances = new double[dim];
-      Arrays.fill(variances, 1.);
+    if(vars == null) {
+      Arrays.fill(this.variances = new double[dim], 1.);
     }
     else {
-      this.variances = variances;
-      this.priordiag = copy(variances);
+      this.variances = new double[dim];
+      for(int i = 0; i < dim; i++) {
+        this.variances[i] = MathUtil.max(vars[i], SINGULARITY_CHEAT);
+      }
+      this.priordiag = vars;
     }
     this.wsum = 0.;
   }
@@ -116,13 +118,17 @@ public class DiagonalGaussianModel implements EMClusterModel<EMModel> {
 
   @Override
   public void updateE(NumberVector vec, double wei) {
-    assert (vec.getDimensionality() == mean.length);
+    assert vec.getDimensionality() == mean.length;
+    assert wei >= 0 && wei < Double.POSITIVE_INFINITY : wei;
+    if(wei < Double.MIN_NORMAL) {
+      return;
+    }
     final double nwsum = wsum + wei;
+    final double f = wei / nwsum; // Do division only once
     // Compute new means
     for(int i = 0; i < mean.length; i++) {
       final double delta = vec.doubleValue(i) - mean[i];
-      final double rval = delta * wei / nwsum;
-      nmea[i] = mean[i] + rval;
+      nmea[i] = mean[i] + delta * f;
     }
     // Update variances
     for(int i = 0; i < mean.length; i++) {
@@ -140,24 +146,41 @@ public class DiagonalGaussianModel implements EMClusterModel<EMModel> {
   public void finalizeEStep(double weight, double prior) {
     final int dim = variances.length;
     this.weight = weight;
-    // FIXME: support prior.
-    double logDet = 0;
-    if(prior > 0 && priordiag != null) {
-      // MAP
-      double nu = dim + 2; // Popular default.
+    double logDet = 0.;
+    if(prior > 0 && priordiag != null) { // MAP
+      double nu = dim + 2.; // Popular default.
       double f2 = 1. / (wsum + prior * (nu + dim + 2));
       for(int i = 0; i < dim; i++) {
-        logDet += FastMath.log(variances[i] = (variances[i] + prior * priordiag[i]) * f2);
+        double v = variances[i] + prior * priordiag[i];
+        logDet += FastMath.log(variances[i] = v > 0 ? v * f2 : SINGULARITY_CHEAT);
       }
     }
-    else if(wsum > 0.) { // MLE
-      final double s = 1. / wsum;
+    else { // MLE
+      final double f = wsum > 0 ? 1. / wsum : 1;
       for(int i = 0; i < dim; i++) {
         double v = variances[i];
-        logDet += FastMath.log(variances[i] = v > 0 ? v * s : SINGULARITY_CHEAT);
+        logDet += FastMath.log(variances[i] = v > 0 ? v * f : SINGULARITY_CHEAT);
       }
-    } // else degenerate
+    }
     logNormDet = FastMath.log(weight) - .5 * (logNorm + logDet);
+    if(prior > 0 && priordiag == null) {
+      priordiag = copy(variances);
+    }
+  }
+
+  /**
+   * Compute the Mahalanobis distance from the centroid for a given vector.
+   * 
+   * @param vec Vector
+   * @return Mahalanobis distance
+   */
+  public double mahalanobisDistance(double[] vec) {
+    double agg = 0.;
+    for(int i = 0; i < mean.length; i++) {
+      double diff = vec[i] - mean[i], v = variances[i];
+      agg += diff / v * diff;
+    }
+    return agg;
   }
 
   /**
@@ -168,9 +191,9 @@ public class DiagonalGaussianModel implements EMClusterModel<EMModel> {
    */
   public double mahalanobisDistance(NumberVector vec) {
     double agg = 0.;
-    for(int i = 0; i < variances.length; i++) {
-      double diff = vec.doubleValue(i) - mean[i];
-      agg += diff / variances[i] * diff;
+    for(int i = 0; i < mean.length; i++) {
+      double diff = vec.doubleValue(i) - mean[i], v = variances[i];
+      agg += diff / v * diff;
     }
     return agg;
   }

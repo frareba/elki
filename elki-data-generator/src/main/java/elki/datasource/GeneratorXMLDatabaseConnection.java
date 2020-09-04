@@ -22,9 +22,8 @@ package elki.datasource;
 
 import java.io.FileNotFoundException;
 import java.io.IOException;
-import java.net.URL;
-import java.nio.file.Files;
-import java.nio.file.Path;
+import java.io.InputStream;
+import java.net.URI;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Random;
@@ -33,8 +32,6 @@ import java.util.regex.Pattern;
 import javax.xml.XMLConstants;
 import javax.xml.parsers.DocumentBuilderFactory;
 import javax.xml.parsers.ParserConfigurationException;
-import javax.xml.validation.Schema;
-import javax.xml.validation.SchemaFactory;
 
 import org.w3c.dom.Document;
 import org.w3c.dom.Element;
@@ -50,6 +47,7 @@ import elki.datasource.filter.ObjectFilter;
 import elki.logging.Logging;
 import elki.math.statistics.distribution.*;
 import elki.utilities.exceptions.AbortException;
+import elki.utilities.io.FileUtil;
 import elki.utilities.io.ParseUtil;
 import elki.utilities.optionhandling.OptionID;
 import elki.utilities.optionhandling.parameterization.Parameterization;
@@ -167,7 +165,7 @@ public class GeneratorXMLDatabaseConnection extends AbstractDatabaseConnection {
   /**
    * The configuration file.
    */
-  Path specfile;
+  URI specfile;
 
   /**
    * Parameter for scaling the cluster sizes.
@@ -204,7 +202,7 @@ public class GeneratorXMLDatabaseConnection extends AbstractDatabaseConnection {
    * @param reassignByDistance Reassign objects by distance instead of density
    * @param clusterRandom Random number generator
    */
-  public GeneratorXMLDatabaseConnection(List<? extends ObjectFilter> filters, Path specfile, double sizescale, Pattern reassign, boolean reassignByDistance, RandomFactory clusterRandom) {
+  public GeneratorXMLDatabaseConnection(List<? extends ObjectFilter> filters, URI specfile, double sizescale, Pattern reassign, boolean reassignByDistance, RandomFactory clusterRandom) {
     super(filters);
     this.specfile = specfile;
     this.sizescale = sizescale;
@@ -238,30 +236,25 @@ public class GeneratorXMLDatabaseConnection extends AbstractDatabaseConnection {
   private GeneratorMain loadXMLSpecification() {
     try {
       DocumentBuilderFactory dbf = DocumentBuilderFactory.newInstance();
+      dbf.setValidating(false);
+      dbf.setFeature(XMLConstants.FEATURE_SECURE_PROCESSING, true);
+      dbf.setNamespaceAware(true);
+      dbf.setFeature("http://xml.org/sax/features/namespaces", false);
+      dbf.setFeature("http://xml.org/sax/features/validation", false);
+      dbf.setFeature("http://apache.org/xml/features/nonvalidating/load-dtd-grammar", false);
       dbf.setFeature("http://apache.org/xml/features/nonvalidating/load-external-dtd", false);
-      URL url = ClassLoader.getSystemResource(GENERATOR_SCHEMA_FILE);
-      if(url != null) {
-        try {
-          Schema schema = SchemaFactory.newInstance(XMLConstants.W3C_XML_SCHEMA_NS_URI).newSchema(url);
-          dbf.setSchema(schema);
-          dbf.setIgnoringElementContentWhitespace(true);
+
+      try (InputStream is = FileUtil.open(specfile)) {
+        Document doc = dbf.newDocumentBuilder().parse(is);
+        Node root = doc.getDocumentElement();
+        if(TAG_DATASET.equals(root.getNodeName())) {
+          GeneratorMain gen = new GeneratorMain();
+          processElementDataset(gen, root);
+          return gen;
         }
-        catch(Exception e) {
-          LOG.warning("Could not set up XML Schema validation for specification file.", e);
+        else {
+          throw new AbortException("Experiment specification has incorrect document element: " + root.getNodeName());
         }
-      }
-      else {
-        LOG.warning("Could not set up XML Schema validation for specification file.");
-      }
-      Document doc = dbf.newDocumentBuilder().parse(Files.newInputStream(specfile));
-      Node root = doc.getDocumentElement();
-      if(TAG_DATASET.equals(root.getNodeName())) {
-        GeneratorMain gen = new GeneratorMain();
-        processElementDataset(gen, root);
-        return gen;
-      }
-      else {
-        throw new AbortException("Experiment specification has incorrect document element: " + root.getNodeName());
       }
     }
     catch(FileNotFoundException e) {
@@ -677,8 +670,8 @@ public class GeneratorXMLDatabaseConnection extends AbstractDatabaseConnection {
 
   /**
    * Parse a string into a vector.
-   *
-   * TODO: move this into utility package?
+   * <p>
+   * TODO: Rewrite this using the new Tokenizer
    *
    * @param s String to parse
    * @return Vector
@@ -736,7 +729,7 @@ public class GeneratorXMLDatabaseConnection extends AbstractDatabaseConnection {
     /**
      * The configuration file.
      */
-    Path specfile = null;
+    URI specfile = null;
 
     /**
      * Parameter for scaling the cluster sizes.

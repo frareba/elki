@@ -113,12 +113,45 @@ public class ExponionKMeans<V extends NumberVector> extends HamerlyKMeans<V> {
       cnum = new int[k][k - 1];
     }
 
-    /**
-     * Reassign objects, but avoid unnecessary computations based on their
-     * bounds.
-     *
-     * @return number of objects reassigned
-     */
+    @Override
+    protected int initialAssignToNearestCluster() {
+      assert k == means.length;
+      computeSquaredSeparation(cdist);
+      for(DBIDIter it = relation.iterDBIDs(); it.valid(); it.advance()) {
+        NumberVector fv = relation.get(it);
+        // Find closest center, and distance to two closest centers:
+        double best = distance(fv, means[0]), sbest = distance(fv, means[1]);
+        int minIndex = 0;
+        if(sbest < best) {
+          double tmp = best;
+          best = sbest;
+          sbest = tmp;
+          minIndex = 1;
+        }
+        for(int j = 2; j < k; j++) {
+          if(sbest > cdist[minIndex][j]) {
+            double dist = distance(fv, means[j]);
+            if(dist < best) {
+              minIndex = j;
+              sbest = best;
+              best = dist;
+            }
+            else if(dist < sbest) {
+              sbest = dist;
+            }
+          }
+        }
+        // Assign to nearest cluster.
+        clusters.get(minIndex).add(it);
+        assignment.putInt(it, minIndex);
+        plusEquals(sums[minIndex], fv);
+        upper.putDouble(it, isSquared ? FastMath.sqrt(best) : best);
+        lower.putDouble(it, isSquared ? FastMath.sqrt(sbest) : sbest);
+      }
+      return relation.size();
+    }
+
+    @Override
     protected int assignToNearestCluster() {
       assert (k == means.length);
       recomputeSeperation(sep, cdist);

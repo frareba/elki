@@ -47,7 +47,6 @@ import elki.result.outlier.OutlierResult;
 import elki.result.outlier.OutlierScoreMeta;
 import elki.utilities.datastructures.BitsUtil;
 import elki.utilities.datastructures.heap.Heap;
-import elki.utilities.datastructures.heap.TopBoundedHeap;
 import elki.utilities.documentation.Description;
 import elki.utilities.documentation.Reference;
 import elki.utilities.documentation.Title;
@@ -80,8 +79,6 @@ import net.jafama.FastMath;
  * @composed - - - GoodnessOfFitTest
  * @composed - - - OutlierAlgorithm
  * @has - - - HiCSSubspace
- *
- * @param <V> vector type
  */
 @Title("HiCS: High Contrast Subspaces for Density-Based Outlier Ranking")
 @Description("Algorithm to compute High Contrast Subspaces in a database as a pre-processing step for for density-based outlier ranking methods.")
@@ -90,7 +87,7 @@ import net.jafama.FastMath;
     booktitle = "Proc. IEEE 28th Int. Conf. on Data Engineering (ICDE 2012)", //
     url = "https://doi.org/10.1109/ICDE.2012.88", //
     bibkey = "DBLP:conf/icde/KellerMB12")
-public class HiCS<V extends NumberVector> implements OutlierAlgorithm {
+public class HiCS implements OutlierAlgorithm {
   /**
    * The Logger for this class.
    */
@@ -163,7 +160,7 @@ public class HiCS<V extends NumberVector> implements OutlierAlgorithm {
    * @return The aggregated resulting scores that were assigned by the given
    *         outlier detection algorithm
    */
-  public OutlierResult run(Relation<V> relation) {
+  public OutlierResult run(Relation<? extends NumberVector> relation) {
     final DBIDs ids = relation.getDBIDs();
 
     ArrayList<ArrayDBIDs> subspaceIndex = buildOneDimIndexes(relation);
@@ -184,7 +181,7 @@ public class HiCS<V extends NumberVector> implements OutlierAlgorithm {
       }
 
       ProxyDatabase pdb = new ProxyDatabase(ids);
-      pdb.addRelation(new ProjectedView<>(relation, new NumericalFeatureSelection<V>(dimset.bits)));
+      pdb.addRelation(new ProjectedView<>(relation, new NumericalFeatureSelection<>(dimset.bits)));
 
       // run LOF and collect the result
       OutlierResult result = outlierAlgorithm.autorun(pdb);
@@ -252,14 +249,14 @@ public class HiCS<V extends NumberVector> implements OutlierAlgorithm {
     }
 
     TreeSet<HiCSSubspace> subspaceList = new TreeSet<>(HiCSSubspace.SORT_BY_SUBSPACE);
-    TopBoundedHeap<HiCSSubspace> dDimensionalList = new TopBoundedHeap<>(cutoff, HiCSSubspace.SORT_BY_CONTRAST_ASC);
+    Heap<HiCSSubspace> dDimensionalList = new Heap<>(cutoff, HiCSSubspace.SORT_BY_CONTRAST_ASC);
     FiniteProgress prog = LOG.isVerbose() ? new FiniteProgress("Generating two-element subsets", (dbdim * (dbdim - 1)) >> 1, LOG) : null;
     // compute two-element sets of subspaces
     for(int i = 0; i < dbdim; i++) {
       for(int j = i + 1; j < dbdim; j++) {
         HiCSSubspace ts = new HiCSSubspace(dbdim).set(i).set(j);
         calculateContrast(relation, ts, subspaceIndex, random);
-        dDimensionalList.add(ts);
+        dDimensionalList.add(ts, cutoff);
         LOG.incrementProcessed(prog);
       }
     }
@@ -291,7 +288,7 @@ public class HiCS<V extends NumberVector> implements OutlierAlgorithm {
           }
 
           calculateContrast(relation, joinedSet, subspaceIndex, random);
-          dDimensionalList.add(joinedSet);
+          dDimensionalList.add(joinedSet, cutoff);
           LOG.incrementProcessed(qprog);
         }
       }
@@ -530,10 +527,8 @@ public class HiCS<V extends NumberVector> implements OutlierAlgorithm {
    * @author Jan Brusis
    * 
    * @hidden
-   * 
-   * @param <V> vector type
    */
-  public static class Par<V extends NumberVector> implements Parameterizer {
+  public static class Par implements Parameterizer {
     /**
      * Parameter that specifies the number of iterations in the Monte-Carlo
      * process of identifying high contrast subspaces.
@@ -617,8 +612,8 @@ public class HiCS<V extends NumberVector> implements OutlierAlgorithm {
     }
 
     @Override
-    public HiCS<V> make() {
-      return new HiCS<>(m, alpha, outlierAlgorithm, statTest, cutoff, rnd);
+    public HiCS make() {
+      return new HiCS(m, alpha, outlierAlgorithm, statTest, cutoff, rnd);
     }
   }
 }

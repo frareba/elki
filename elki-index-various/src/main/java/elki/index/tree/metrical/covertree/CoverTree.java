@@ -26,6 +26,7 @@ import java.util.List;
 
 import elki.database.ids.*;
 import elki.database.query.PrioritySearcher;
+import elki.database.query.QueryBuilder;
 import elki.database.query.distance.DistanceQuery;
 import elki.database.query.knn.KNNSearcher;
 import elki.database.query.range.RangeSearcher;
@@ -35,6 +36,7 @@ import elki.index.DistancePriorityIndex;
 import elki.logging.Logging;
 import elki.logging.statistics.DoubleStatistic;
 import elki.logging.statistics.LongStatistic;
+import elki.math.MathUtil;
 import elki.utilities.Priority;
 import elki.utilities.datastructures.heap.DoubleObjectMinHeap;
 import elki.utilities.documentation.Reference;
@@ -80,7 +82,7 @@ public class CoverTree<O> extends AbstractCoverTree<O> implements DistancePriori
   /**
    * Class logger.
    */
-  static final Logging LOG = Logging.getLogger(CoverTree.class);
+  private static final Logging LOG = Logging.getLogger(CoverTree.class);
 
   /**
    * Tree root.
@@ -93,7 +95,7 @@ public class CoverTree<O> extends AbstractCoverTree<O> implements DistancePriori
    * @param relation data relation
    * @param distance distance function
    * @param expansion Expansion rate
-   * @param truncate Truncate branches with less than this number of instances.
+   * @param truncate Truncate branches with less than this number of instances
    */
   public CoverTree(Relation<O> relation, Distance<? super O> distance, double expansion, int truncate) {
     super(relation, distance, expansion, truncate);
@@ -137,16 +139,11 @@ public class CoverTree<O> extends AbstractCoverTree<O> implements DistancePriori
     List<Node> children;
 
     /**
-     * Expansion scale.
-     */
-    // int scale = SCALE_LEAF;
-
-    /**
      * Constructor.
      *
-     * @param r Object.
-     * @param maxDist Maximum distance to any descendant.
-     * @param parentDist Distance from parent.
+     * @param r Reference object
+     * @param maxDist Maximum distance to any descendant
+     * @param parentDist Distance from parent
      */
     public Node(DBIDRef r, double maxDist, double parentDist) {
       this.singletons = DBIDUtil.newDistanceDBIDList();
@@ -159,13 +156,13 @@ public class CoverTree<O> extends AbstractCoverTree<O> implements DistancePriori
     /**
      * Constructor for leaf node.
      *
-     * @param r Object.
-     * @param maxDist Maximum distance to any descendant.
-     * @param parentDist Distance from parent.
-     * @param singletons Singletons.
+     * @param r Reference object
+     * @param maxDist Maximum distance to any descendant
+     * @param parentDist Distance from parent
+     * @param singletons Singletons
      */
     public Node(DBIDRef r, double maxDist, double parentDist, DoubleDBIDList singletons) {
-      assert (!singletons.contains(r));
+      assert !singletons.contains(r);
       this.singletons = DBIDUtil.newDistanceDBIDList(singletons.size() + 1);
       this.singletons.add(0., r);
       for(DoubleDBIDListIter it = singletons.iter(); it.valid(); it.advance()) {
@@ -197,10 +194,10 @@ public class CoverTree<O> extends AbstractCoverTree<O> implements DistancePriori
    * @param ids IDs to load
    */
   public void bulkLoad(DBIDs ids) {
-    if(ids.size() == 0) {
+    if(ids.isEmpty()) {
       return;
     }
-    assert (root == null) : "Tree already initialized.";
+    assert root == null : "Tree already initialized.";
     DBIDIter it = ids.iter();
     DBID first = DBIDUtil.deref(it);
     // Compute distances to all neighbors:
@@ -219,11 +216,11 @@ public class CoverTree<O> extends AbstractCoverTree<O> implements DistancePriori
    *
    * @param cur Current routing object
    * @param maxScale Maximum scale
+   * @param parentDist Distance to parent element
    * @param elems Candidates
    * @return Root node of subtree
    */
   protected Node bulkConstruct(DBIDRef cur, int maxScale, double parentDist, ModifiableDoubleDBIDList elems) {
-    assert (!elems.contains(cur));
     final double max = maxDistance(elems);
     final int scale = Math.min(distToScale(max) - 1, maxScale);
     final int nextScale = scale - 1;
@@ -236,14 +233,14 @@ public class CoverTree<O> extends AbstractCoverTree<O> implements DistancePriori
     ModifiableDoubleDBIDList candidates = DBIDUtil.newDistanceDBIDList();
     excludeNotCovered(elems, scaleToDist(scale), candidates);
     // If no elements were not in the cover, build a compact tree:
-    if(candidates.size() == 0) {
+    if(candidates.isEmpty()) {
       LOG.warning("Scale not chosen appropriately? " + max + " " + scaleToDist(scale));
       return bulkConstruct(cur, nextScale, parentDist, elems);
     }
     // We will have at least one other child, so build the parent:
     Node node = new Node(cur, max, parentDist);
     // Routing element now is a singleton:
-    final boolean curSingleton = elems.size() == 0;
+    final boolean curSingleton = elems.isEmpty();
     if(!curSingleton) {
       // Add node for the routing object:
       node.children.add(bulkConstruct(cur, nextScale, 0, elems));
@@ -251,11 +248,11 @@ public class CoverTree<O> extends AbstractCoverTree<O> implements DistancePriori
     final double fmax = scaleToDist(nextScale);
     // Build additional cover nodes:
     for(DoubleDBIDListIter it = candidates.iter(); it.valid();) {
-      assert (it.getOffset() == 0);
+      assert it.getOffset() == 0;
       DBID t = DBIDUtil.deref(it);
       collectByCover(it, candidates, fmax, elems.clear());
-      assert (DBIDUtil.equal(t, it)) : "First element in candidates must not change!";
-      if(elems.size() == 0) { // Singleton
+      assert DBIDUtil.equal(t, it) : "First element in candidates must not change!";
+      if(elems.isEmpty()) { // Singleton
         node.singletons.add(it.doubleValue(), it);
       }
       else {
@@ -264,7 +261,7 @@ public class CoverTree<O> extends AbstractCoverTree<O> implements DistancePriori
       }
       candidates.removeSwap(0);
     }
-    assert (candidates.size() == 0);
+    assert candidates.isEmpty();
     // Routing object is not yet handled:
     if(curSingleton && !node.children.isEmpty()) {
       node.singletons.add(parentDist, cur); // Add as regular singleton.
@@ -296,38 +293,44 @@ public class CoverTree<O> extends AbstractCoverTree<O> implements DistancePriori
 
   @Override
   public RangeSearcher<O> rangeByObject(DistanceQuery<O> distanceQuery, double maxradius, int flags) {
-    return distanceQuery.getRelation() == relation && this.distance.equals(distanceQuery.getDistance()) ? //
-        new CoverTreeRangeObjectSearcher() : null;
+    return (flags & QueryBuilder.FLAG_PRECOMPUTE) == 0 && //
+        distanceQuery.getRelation() == relation && this.distance.equals(distanceQuery.getDistance()) ? //
+            new CoverTreeRangeObjectSearcher() : null;
   }
 
   @Override
   public RangeSearcher<DBIDRef> rangeByDBID(DistanceQuery<O> distanceQuery, double maxradius, int flags) {
-    return distanceQuery.getRelation() == relation && this.distance.equals(distanceQuery.getDistance()) ? //
-        new CoverTreeRangeDBIDSearcher() : null;
+    return (flags & QueryBuilder.FLAG_PRECOMPUTE) == 0 && //
+        distanceQuery.getRelation() == relation && this.distance.equals(distanceQuery.getDistance()) ? //
+            new CoverTreeRangeDBIDSearcher() : null;
   }
 
   @Override
   public KNNSearcher<O> kNNByObject(DistanceQuery<O> distanceQuery, int maxk, int flags) {
-    return distanceQuery.getRelation() == relation && this.distance.equals(distanceQuery.getDistance()) ? //
-        new CoverTreeKNNObjectSearcher() : null;
+    return (flags & QueryBuilder.FLAG_PRECOMPUTE) == 0 && //
+        distanceQuery.getRelation() == relation && this.distance.equals(distanceQuery.getDistance()) ? //
+            new CoverTreePriorityObjectSearcher() : null;
   }
 
   @Override
   public KNNSearcher<DBIDRef> kNNByDBID(DistanceQuery<O> distanceQuery, int maxk, int flags) {
-    return distanceQuery.getRelation() == relation && this.distance.equals(distanceQuery.getDistance()) ? //
-        new CoverTreeKNNDBIDSearcher() : null;
+    return (flags & QueryBuilder.FLAG_PRECOMPUTE) == 0 && //
+        distanceQuery.getRelation() == relation && this.distance.equals(distanceQuery.getDistance()) ? //
+            new CoverTreePriorityDBIDSearcher() : null;
   }
 
   @Override
   public PrioritySearcher<O> priorityByObject(DistanceQuery<O> distanceQuery, double maxradius, int flags) {
-    return distanceQuery.getRelation() == relation && this.distance.equals(distanceQuery.getDistance()) ? //
-        new CoverTreePriorityObjectSearcher() : null;
+    return (flags & QueryBuilder.FLAG_PRECOMPUTE) == 0 && //
+        distanceQuery.getRelation() == relation && this.distance.equals(distanceQuery.getDistance()) ? //
+            new CoverTreePriorityObjectSearcher() : null;
   }
 
   @Override
   public PrioritySearcher<DBIDRef> priorityByDBID(DistanceQuery<O> distanceQuery, double maxradius, int flags) {
-    return distanceQuery.getRelation() == relation && this.distance.equals(distanceQuery.getDistance()) ? //
-        new CoverTreePriorityDBIDSearcher() : null;
+    return (flags & QueryBuilder.FLAG_PRECOMPUTE) == 0 && //
+        distanceQuery.getRelation() == relation && this.distance.equals(distanceQuery.getDistance()) ? //
+            new CoverTreePriorityDBIDSearcher() : null;
   }
 
   @Override
@@ -344,7 +347,7 @@ public class CoverTree<O> extends AbstractCoverTree<O> implements DistancePriori
     /**
      * LIFO stack of open nodes.
      */
-    private ArrayList<Node> open = new ArrayList<Node>();
+    private ArrayList<Node> open = new ArrayList<>();
 
     /**
      * Temporary storage.
@@ -357,7 +360,7 @@ public class CoverTree<O> extends AbstractCoverTree<O> implements DistancePriori
      * @param it Candidate
      * @return Distance
      */
-    abstract protected double queryDistance(DBIDRef it);
+    protected abstract double queryDistance(DBIDRef it);
 
     /**
      * Perform the actual search.
@@ -380,7 +383,7 @@ public class CoverTree<O> extends AbstractCoverTree<O> implements DistancePriori
           for(Node c : cur.children) {
             // This only seems to reduce the number of distance computations
             // marginally, unfortunately.
-            if(d - c.maxDist - c.parentDist <= range) {
+            if(Math.abs(d - c.parentDist) - c.maxDist <= range) {
               open.add(c);
             }
           }
@@ -395,7 +398,7 @@ public class CoverTree<O> extends AbstractCoverTree<O> implements DistancePriori
         final DoubleDBIDListIter it = cur.singletons.iter().advance();
         // For remaining singletons, compute the distances:
         while(it.valid()) {
-          if(d - it.doubleValue() <= range) {
+          if(Math.abs(d - it.doubleValue()) <= range) {
             final double d2 = queryDistance(it);
             if(d2 <= range) {
               result.add(d2, it);
@@ -461,7 +464,7 @@ public class CoverTree<O> extends AbstractCoverTree<O> implements DistancePriori
    */
   public abstract class CoverTreeKNNSearcher {
     /**
-     * Priority queue of candidates
+     * Priority queue of candidates.
      */
     private DoubleObjectMinHeap<Node> pq = new DoubleObjectMinHeap<>();
 
@@ -473,7 +476,7 @@ public class CoverTree<O> extends AbstractCoverTree<O> implements DistancePriori
     /**
      * Do the main search
      *
-     * @param k Number of neighbors to collect.
+     * @param k Number of neighbors to collect
      * @return results
      */
     protected KNNList doSearch(int k) {
@@ -498,7 +501,7 @@ public class CoverTree<O> extends AbstractCoverTree<O> implements DistancePriori
           for(Node c : cur.children) {
             // This only seems to reduce the number of distance computations
             // marginally, unfortunately.
-            if(d - c.maxDist - c.parentDist <= d_k) {
+            if(Math.abs(d - c.parentDist) - c.maxDist <= d_k) {
               // Reuse distance if the previous routing object is the same:
               double newprio = (DBIDUtil.equal(c.singletons.assignVar(0, tmp), it) //
                   ? d : queryDistance(tmp)) //
@@ -518,7 +521,7 @@ public class CoverTree<O> extends AbstractCoverTree<O> implements DistancePriori
         it.advance(); // Skip routing object.
         // For remaining singletons, compute the distances:
         while(it.valid()) {
-          if(d - it.doubleValue() <= d_k) {
+          if(Math.abs(d - it.doubleValue()) <= d_k) {
             final double d2 = queryDistance(it);
             if(d2 <= d_k) {
               d_k = knnList.insert(d2, it);
@@ -536,7 +539,7 @@ public class CoverTree<O> extends AbstractCoverTree<O> implements DistancePriori
      * @param it Candidate
      * @return Distance
      */
-    abstract protected double queryDistance(DBIDRef it);
+    protected abstract double queryDistance(DBIDRef it);
   }
 
   /**
@@ -590,12 +593,11 @@ public class CoverTree<O> extends AbstractCoverTree<O> implements DistancePriori
    *
    * @author Erich Schubert
    * 
-   * @param <T> this type
    * @param <Q> query type
    */
-  public abstract class CoverTreePrioritySearcher<T extends PrioritySearcher<Q>, Q> implements PrioritySearcher<Q> {
+  public abstract class CoverTreePrioritySearcher<Q> implements PrioritySearcher<Q> {
     /**
-     * Stopping distance threshold
+     * Stopping distance threshold.
      */
     double threshold = Double.POSITIVE_INFINITY;
 
@@ -620,6 +622,11 @@ public class CoverTree<O> extends AbstractCoverTree<O> implements DistancePriori
     private double routingDist;
 
     /**
+     * Current lower bound.
+     */
+    private double lb;
+
+    /**
      * Constructor.
      */
     public CoverTreePrioritySearcher() {
@@ -632,26 +639,31 @@ public class CoverTree<O> extends AbstractCoverTree<O> implements DistancePriori
      * @param it Candidate
      * @return Distance
      */
-    abstract protected double queryDistance(DBIDRef it);
+    protected abstract double queryDistance(DBIDRef it);
 
     /**
      * Start the search.
      *
      * @return this.
      */
-    protected T doSearch() {
+    protected PrioritySearcher<Q> doSearch() {
       this.threshold = Double.POSITIVE_INFINITY;
       pq.clear();
       pq.add(queryDistance(root.singletons.iter()) - root.maxDist, root);
+      lb = 0.;
       return advance(); // Find first
     }
 
-    @SuppressWarnings("unchecked")
     @Override
-    public T decreaseCutoff(double threshold) {
+    public PrioritySearcher<Q> decreaseCutoff(double threshold) {
       assert threshold <= this.threshold;
       this.threshold = threshold;
-      return (T) this;
+      return this;
+    }
+
+    @Override
+    public double allLowerBound() {
+      return lb;
     }
 
     @Override
@@ -659,9 +671,8 @@ public class CoverTree<O> extends AbstractCoverTree<O> implements DistancePriori
       return candidates.valid();
     }
 
-    @SuppressWarnings("unchecked")
     @Override
-    public T advance() {
+    public PrioritySearcher<Q> advance() {
       // Advance the main iterator, if defined:
       if(candidates.valid()) {
         candidates.advance();
@@ -673,14 +684,14 @@ public class CoverTree<O> extends AbstractCoverTree<O> implements DistancePriori
       do {
         while(candidates.valid()) {
           // Pruning with lower bound:
-          if(routingDist - candidates.doubleValue() <= threshold) {
-            return (T) this;
+          if(Math.abs(routingDist - candidates.doubleValue()) <= threshold) {
+            return this;
           }
           candidates.advance(); // Skip
         }
       }
       while(advanceQueue()); // Try next node
-      return (T) this;
+      return this;
     }
 
     /**
@@ -697,6 +708,7 @@ public class CoverTree<O> extends AbstractCoverTree<O> implements DistancePriori
         return false;
       }
       final Node cur = pq.peekValue();
+      lb = prio > lb ? prio : lb;
       routingDist = prio + cur.maxDist; // Restore distance to center.
       candidates = cur.singletons.iter(); // Routing object initially
       pq.poll(); // Remove
@@ -704,7 +716,7 @@ public class CoverTree<O> extends AbstractCoverTree<O> implements DistancePriori
       // Add child nodes to priority queue:
       for(Node c : cur.children) {
         // This pruning rule very rarely works, unfortunately
-        if(routingDist - c.maxDist - c.parentDist <= threshold) {
+        if(Math.abs(routingDist - c.parentDist) - c.maxDist <= threshold) {
           // Reuse distance if the previous routing object is the same:
           double newprio = (DBIDUtil.equal(c.singletons.assignVar(0, tmp), candidates) //
               ? routingDist : queryDistance(tmp)) //
@@ -722,27 +734,27 @@ public class CoverTree<O> extends AbstractCoverTree<O> implements DistancePriori
 
     @Override
     public double getApproximateDistance() {
-      return routingDist;
+      return MathUtil.max(candidates.doubleValue(), routingDist);
     }
 
     @Override
     public double getApproximateAccuracy() {
-      return candidates.getOffset() == 0 ? 0. : candidates.doubleValue();
+      return candidates.getOffset() == 0 ? 0. : MathUtil.min(candidates.doubleValue(), routingDist);
     }
 
     @Override
     public double getLowerBound() {
-      return candidates.getOffset() == 0 ? routingDist : routingDist - candidates.doubleValue();
+      return candidates.getOffset() == 0 ? routingDist : MathUtil.max(lb, Math.abs(candidates.doubleValue() - routingDist));
     }
 
     @Override
     public double getUpperBound() {
-      return candidates.getOffset() == 0 ? routingDist : routingDist + candidates.doubleValue();
+      return candidates.getOffset() == 0 ? routingDist : candidates.doubleValue() + routingDist;
     }
 
     @Override
     public double computeExactDistance() {
-      return candidates.getOffset() == 0 ? routingDist : queryDistance(candidates);
+      return candidates.getOffset() == 0 || candidates.doubleValue() == 0 ? routingDist : queryDistance(candidates);
     }
 
     @Override
@@ -756,14 +768,14 @@ public class CoverTree<O> extends AbstractCoverTree<O> implements DistancePriori
    *
    * @author Erich Schubert
    */
-  public class CoverTreePriorityObjectSearcher extends CoverTreePrioritySearcher<CoverTreePriorityObjectSearcher, O> {
+  public class CoverTreePriorityObjectSearcher extends CoverTreePrioritySearcher<O> {
     /**
      * Query object
      */
     private O query;
 
     @Override
-    public CoverTreePriorityObjectSearcher search(O query) {
+    public PrioritySearcher<O> search(O query) {
       this.query = query;
       doSearch();
       return this;
@@ -780,14 +792,14 @@ public class CoverTree<O> extends AbstractCoverTree<O> implements DistancePriori
    *
    * @author Erich Schubert
    */
-  public class CoverTreePriorityDBIDSearcher extends CoverTreePrioritySearcher<CoverTreePriorityDBIDSearcher, DBIDRef> {
+  public class CoverTreePriorityDBIDSearcher extends CoverTreePrioritySearcher<DBIDRef> {
     /**
      * Query object
      */
     private DBIDRef query;
 
     @Override
-    public CoverTreePriorityDBIDSearcher search(DBIDRef query) {
+    public PrioritySearcher<DBIDRef> search(DBIDRef query) {
       this.query = query;
       doSearch();
       return this;
@@ -814,8 +826,7 @@ public class CoverTree<O> extends AbstractCoverTree<O> implements DistancePriori
      *
      * @param distance Distance function
      * @param expansion Expansion rate
-     * @param truncate Truncate branches with less than this number of
-     *        instances.
+     * @param truncate Truncate branches with less than this number of instances
      */
     public Factory(Distance<? super O> distance, double expansion, int truncate) {
       super(distance, expansion, truncate);
@@ -823,7 +834,7 @@ public class CoverTree<O> extends AbstractCoverTree<O> implements DistancePriori
 
     @Override
     public CoverTree<O> instantiate(Relation<O> relation) {
-      return new CoverTree<O>(relation, distance, expansion, truncate);
+      return new CoverTree<>(relation, distance, expansion, truncate);
     }
 
     /**

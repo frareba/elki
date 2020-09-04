@@ -20,7 +20,6 @@
  */
 package elki.outlier.subspace;
 
-import elki.data.DoubleVector;
 import elki.data.NumberVector;
 import elki.data.type.SimpleTypeInformation;
 import elki.data.type.TypeInformation;
@@ -34,7 +33,6 @@ import elki.database.query.similarity.SimilarityQuery;
 import elki.database.relation.MaterializedDoubleRelation;
 import elki.database.relation.MaterializedRelation;
 import elki.database.relation.Relation;
-import elki.distance.subspace.SubspaceEuclideanDistance;
 import elki.logging.Logging;
 import elki.logging.progress.FiniteProgress;
 import elki.math.DoubleMinMax;
@@ -51,8 +49,6 @@ import elki.result.textwriter.TextWriterStream;
 import elki.similarity.SharedNearestNeighborSimilarity;
 import elki.similarity.Similarity;
 import elki.utilities.datastructures.BitsUtil;
-import elki.utilities.datastructures.heap.Heap;
-import elki.utilities.datastructures.heap.TiedTopBoundedHeap;
 import elki.utilities.documentation.Description;
 import elki.utilities.documentation.Reference;
 import elki.utilities.documentation.Title;
@@ -65,9 +61,11 @@ import elki.utilities.optionhandling.parameters.Flag;
 import elki.utilities.optionhandling.parameters.IntParameter;
 import elki.utilities.optionhandling.parameters.ObjectParameter;
 
+import net.jafama.FastMath;
+
 /**
- * Subspace Outlier Degree. Outlier detection method for axis-parallel
- * subspaces.
+ * Subspace Outlier Degree: Outlier Detection in Axis-Parallel Subspaces of High
+ * Dimensional Data.
  * <p>
  * Reference:
  * <p>
@@ -192,9 +190,9 @@ public class SOD<V extends NumberVector> implements OutlierAlgorithm {
   /**
    * Get the k nearest neighbors in terms of the shared nearest neighbor
    * distance.
-   *
+   * <p>
    * The query object is excluded from the knn list.
-   * 
+   * <p>
    * FIXME: move this to the database layer.
    * 
    * @param relation the database holding the objects
@@ -204,22 +202,15 @@ public class SOD<V extends NumberVector> implements OutlierAlgorithm {
    *         distance without the query object
    */
   private DBIDs getNearestNeighbors(Relation<V> relation, SimilarityQuery<V> simQ, DBIDRef queryObject) {
-    Heap<DoubleDBIDPair> nearestNeighbors = new TiedTopBoundedHeap<>(knn);
+    KNNHeap nearestNeighbors = DBIDUtil.newHeap(knn);
     for(DBIDIter iter = relation.iterDBIDs(); iter.valid(); iter.advance()) {
       if(DBIDUtil.equal(iter, queryObject)) {
         continue;
       }
-      double sim = simQ.similarity(queryObject, iter);
-      if(sim > 0.) {
-        nearestNeighbors.add(DBIDUtil.newPair(sim, iter));
-      }
+      nearestNeighbors.insert(-simQ.similarity(queryObject, iter), iter);
     }
-    // Collect DBIDs
-    ArrayModifiableDBIDs dbids = DBIDUtil.newArray(nearestNeighbors.size());
-    while(nearestNeighbors.size() > 0) {
-      dbids.add(nearestNeighbors.poll());
-    }
-    return dbids;
+    // Reduce result to DBIDs
+    return nearestNeighbors.unorderedIterator().addTo(DBIDUtil.newArray(nearestNeighbors.size()));
   }
 
   /**
@@ -252,12 +243,14 @@ public class SOD<V extends NumberVector> implements OutlierAlgorithm {
    * @return sod score
    */
   private double subspaceOutlierDegree(V queryObject, double[] center, long[] weightVector) {
-    final int card = BitsUtil.cardinality(weightVector);
-    if(card == 0) {
-      return 0;
+    double sqrDist = 0;
+    int card = 0;
+    for(int d = BitsUtil.nextSetBit(weightVector, 0); d >= 0; d = BitsUtil.nextSetBit(weightVector, d + 1)) {
+      final double delta = queryObject.doubleValue(d) - center[d];
+      sqrDist += delta * delta;
+      card++;
     }
-    final SubspaceEuclideanDistance df = new SubspaceEuclideanDistance(weightVector);
-    return df.distance(queryObject, DoubleVector.wrap(center)) / card;
+    return sqrDist > 0 ? FastMath.sqrt(sqrDist) / card : 0.;
   }
 
   /**
@@ -298,13 +291,13 @@ public class SOD<V extends NumberVector> implements OutlierAlgorithm {
 
   /**
    * Parameterization class.
-   * 
+   *
    * @author Erich Schubert
    */
   public static class Par<V extends NumberVector> implements Parameterizer {
     /**
      * Parameter to specify the number of shared nearest neighbors to be
-     * considered for learning the subspace properties., must be an integer
+     * considered for learning the subspace properties, must be an integer
      * greater than 0.
      */
     public static final OptionID KNN_ID = new OptionID("sod.knn", "The number of most snn-similar objects to use as reference set for learning the subspace properties.");
@@ -326,7 +319,7 @@ public class SOD<V extends NumberVector> implements OutlierAlgorithm {
     public static final OptionID MODELS_ID = new OptionID("sod.models", "Report the models computed by SOD (default: report only scores).");
 
     /**
-     * Neighborhood size
+     * Neighborhood size.
      */
     private int knn = 1;
 

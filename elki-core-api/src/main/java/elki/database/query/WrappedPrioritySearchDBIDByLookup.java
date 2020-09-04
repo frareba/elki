@@ -20,11 +20,9 @@
  */
 package elki.database.query;
 
-import elki.database.ids.DBIDIter;
 import elki.database.ids.DBIDRef;
 import elki.database.ids.KNNList;
 import elki.database.ids.ModifiableDoubleDBIDList;
-import elki.database.query.LinearScanQuery;
 import elki.database.relation.Relation;
 
 /**
@@ -74,7 +72,7 @@ public class WrappedPrioritySearchDBIDByLookup<O> implements PrioritySearcher<DB
   }
 
   @Override
-  public DBIDIter advance() {
+  public PrioritySearcher<DBIDRef> advance() {
     inner.advance();
     return this;
   }
@@ -120,6 +118,11 @@ public class WrappedPrioritySearchDBIDByLookup<O> implements PrioritySearcher<DB
     return inner.computeExactDistance();
   }
 
+  @Override
+  public double allLowerBound() {
+    return inner.allLowerBound();
+  }
+
   /**
    * Linear scan searcher.
    * 
@@ -149,6 +152,6 @@ public class WrappedPrioritySearchDBIDByLookup<O> implements PrioritySearcher<DB
    */
   public static <O> PrioritySearcher<DBIDRef> wrap(Relation<? extends O> relation, PrioritySearcher<O> inner) {
     return inner == null ? null : inner instanceof LinearScanQuery //
-        ? new Linear<O>(relation, inner) : new WrappedPrioritySearchDBIDByLookup<O>(relation, inner);
+        ? new Linear<>(relation, inner) : new WrappedPrioritySearchDBIDByLookup<>(relation, inner);
   }
 }

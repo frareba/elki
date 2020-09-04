@@ -32,7 +32,7 @@ import elki.utilities.optionhandling.parameters.Parameter;
  * This configuration can be "rewound" to allow the same values to be consumed
  * multiple times, by different classes. This is used in best-effort
  * parameterization when some instances might not apply given the actual data,
- * e.g. in visualization classes.
+ * e.g., in visualization classes.
  * 
  * @author Erich Schubert
  * @since 0.3
@@ -42,17 +42,17 @@ public class MergedParameterization implements Parameterization {
   /**
    * The parameterization we get the new values from.
    */
-  final private Parameterization inner;
+  private final Parameterization inner;
 
   /**
    * Parameters we used before, but have rewound
    */
-  final private ListParameterization current;
+  private final ListParameterization current;
 
   /**
    * Parameters to rewind.
    */
-  final private List<ParameterPair> used;
+  private final List<ParameterPair> used;
 
   /**
    * Constructor.

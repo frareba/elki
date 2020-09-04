@@ -26,6 +26,7 @@ import elki.clustering.AbstractClusterAlgorithmTest;
 import elki.clustering.kmeans.KMeans;
 import elki.clustering.kmeans.SingleAssignmentKMeans;
 import elki.clustering.kmedoids.CLARA;
+import elki.clustering.kmedoids.PAM;
 import elki.data.Clustering;
 import elki.data.DoubleVector;
 import elki.database.Database;
@@ -38,12 +39,8 @@ import elki.utilities.ELKIBuilder;
  * @since 0.7.5
  */
 public class BUILDTest extends AbstractClusterAlgorithmTest {
-  /**
-   * Run KMeans with fixed parameters and compare the result to a golden
-   * standard.
-   */
   @Test
-  public void testPAMInitialMeans() {
+  public void testKMeansBUILD() {
     Database db = makeSimpleDatabase(UNITTEST + "different-densities-2d-no-noise.ascii", 1000);
     Clustering<?> result = new ELKIBuilder<SingleAssignmentKMeans<DoubleVector>>(SingleAssignmentKMeans.class) //
         .with(KMeans.K_ID, 5) //
@@ -53,12 +50,19 @@ public class BUILDTest extends AbstractClusterAlgorithmTest {
     assertClusterSizes(result, new int[] { 199, 200, 200, 200, 201 });
   }
 
-  /**
-   * Run CLARA with fixed parameters and compare the result to a golden
-   * standard.
-   */
   @Test
-  public void testPAMInitialMedoids() {
+  public void testPAMBUILD() {
+    Database db = makeSimpleDatabase(UNITTEST + "different-densities-2d-no-noise.ascii", 1000);
+    Clustering<?> result = new ELKIBuilder<PAM<DoubleVector>>(PAM.class) //
+        .with(KMeans.K_ID, 5) //
+        .with(KMeans.INIT_ID, BUILD.class) //
+        .build().autorun(db);
+    assertFMeasure(db, result, 0.99800500);
+    assertClusterSizes(result, new int[] { 199, 200, 200, 200, 201 });
+  }
+
+  @Test
+  public void testCLARABUILD() {
     Database db = makeSimpleDatabase(UNITTEST + "different-densities-2d-no-noise.ascii", 1000);
     Clustering<?> result = new ELKIBuilder<CLARA<DoubleVector>>(CLARA.class) //
         .with(KMeans.K_ID, 5) //

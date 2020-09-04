@@ -23,9 +23,9 @@ package elki.index.tree.spatial.rstarvariants;
 import java.io.ByteArrayOutputStream;
 import java.io.IOException;
 import java.io.ObjectOutputStream;
+import java.util.ArrayDeque;
 import java.util.ArrayList;
 import java.util.List;
-import java.util.Stack;
 
 import elki.data.HyperBoundingBox;
 import elki.data.ModifiableHyperBoundingBox;
@@ -33,13 +33,9 @@ import elki.data.spatial.SpatialComparable;
 import elki.data.spatial.SpatialUtil;
 import elki.database.ids.DBIDRef;
 import elki.database.ids.DBIDUtil;
-import elki.index.tree.BreadthFirstEnumeration;
-import elki.index.tree.IndexTreePath;
-import elki.index.tree.LeafEntry;
-import elki.index.tree.TreeIndexHeader;
+import elki.index.tree.*;
 import elki.index.tree.spatial.SpatialDirectoryEntry;
 import elki.index.tree.spatial.SpatialEntry;
-import elki.index.tree.spatial.SpatialIndexTree;
 import elki.index.tree.spatial.SpatialPointLeafEntry;
 import elki.index.tree.spatial.rstarvariants.util.NodeArrayAdapter;
 import elki.logging.Logging;
@@ -51,7 +47,7 @@ import elki.utilities.exceptions.AbortException;
 
 /**
  * Abstract superclass for index structures based on a R*-Tree.
- *
+ * <p>
  * Implementation Note: The restriction on NumberVector (as opposed to e.g.
  * FeatureVector) is intentional, because we have spatial requirements.
  *
@@ -65,8 +61,9 @@ import elki.utilities.exceptions.AbortException;
  *
  * @param <N> Node type
  * @param <E> Entry type
+ * @param <S> Settings container
  */
-public abstract class AbstractRStarTree<N extends AbstractRStarTreeNode<N, E>, E extends SpatialEntry, S extends RTreeSettings> extends SpatialIndexTree<N, E> {
+public abstract class AbstractRStarTree<N extends AbstractRStarTreeNode<N, E>, E extends SpatialEntry, S extends RTreeSettings> extends IndexTree<N, E> {
   /**
    * Development flag: This will enable some extra integrity checks on the tree.
    */
@@ -126,8 +123,8 @@ public abstract class AbstractRStarTree<N extends AbstractRStarTreeNode<N, E>, E
     else {
       for(int i = 0; i < node.getNumEntries(); i++) {
         if(SpatialUtil.intersects(node.getEntry(i), mbr)) {
-          IndexTreePath<E> childSubtree = new IndexTreePath<>(subtree, node.getEntry(i), i);
-          IndexTreePath<E> path = findPathToObject(childSubtree, mbr, id);
+          IndexTreePath<E> path = findPathToObject( //
+              new IndexTreePath<>(subtree, node.getEntry(i), i), mbr, id);
           if(path != null) {
             return path;
           }
@@ -137,7 +134,11 @@ public abstract class AbstractRStarTree<N extends AbstractRStarTreeNode<N, E>, E
     return null;
   }
 
-  @Override
+  /**
+   * Add a new leaf entry to the tree.
+   *
+   * @param leaf Leaf entry
+   */
   public void insertLeaf(E leaf) {
     if(!initialized) {
       initialize(leaf);
@@ -145,52 +146,29 @@ public abstract class AbstractRStarTree<N extends AbstractRStarTreeNode<N, E>, E
     settings.getOverflowTreatment().reinitialize();
 
     preInsert(leaf);
-    insertLeafEntry(leaf);
+    insertEntry(leaf, height);
 
     doExtraIntegrityChecks();
   }
 
   /**
-   * Inserts the specified leaf entry into this R*-Tree.
+   * Inserts the specified entry at the specified level into this R*-Tree.
    *
-   * @param entry the leaf entry to be inserted
+   * @param entry the entry to be inserted
+   * @param depth the depth at which the entry is to be inserted
    */
-  protected void insertLeafEntry(E entry) {
+  protected void insertEntry(E entry, int depth) {
     lastInsertedEntry = entry;
-    // choose subtree for insertion
-    IndexTreePath<E> subtree = choosePath(getRootPath(), entry, height, 1);
-
-    if(getLogger().isDebugging()) {
-      getLogger().debugFine("insertion-subtree " + subtree);
-    }
-
-    N parent = getNode(subtree.getEntry());
-    parent.addLeafEntry(entry);
-    writeNode(parent);
-
-    // adjust the tree from subtree to root
-    adjustTree(subtree);
-  }
-
-  /**
-   * Inserts the specified directory entry at the specified level into this
-   * R*-Tree.
-   *
-   * @param entry the directory entry to be inserted
-   * @param depth the depth at which the directory entry is to be inserted
-   */
-  protected void insertDirectoryEntry(E entry, int depth) {
-    lastInsertedEntry = entry;
-    // choose node for insertion of o
+    // choose node for insertion
     IndexTreePath<E> subtree = choosePath(getRootPath(), entry, depth, 1);
+    assert depth == subtree.getPathCount();
     if(getLogger().isDebugging()) {
-      getLogger().debugFine("subtree " + subtree);
+      getLogger().debugFine("insert at " + subtree);
     }
 
     N parent = getNode(subtree.getEntry());
-    parent.addDirectoryEntry(entry);
+    parent.addEntry(entry);
     writeNode(parent);
-
     // adjust the tree from subtree to root
     adjustTree(subtree);
   }
@@ -210,16 +188,16 @@ public abstract class AbstractRStarTree<N extends AbstractRStarTreeNode<N, E>, E
     writeNode(leaf);
 
     // condense the tree
-    Stack<N> stack = new Stack<>();
+    ArrayDeque<N> stack = new ArrayDeque<>();
     condenseTree(deletionPath.getParentPath(), stack);
 
     // reinsert underflow nodes
-    while(!stack.empty()) {
+    while(!stack.isEmpty()) {
       N node = stack.pop();
       if(node.isLeaf()) {
         for(int i = 0; i < node.getNumEntries(); i++) {
           settings.getOverflowTreatment().reinitialize(); // Intended?
-          this.insertLeafEntry(node.getEntry(i));
+          this.insertEntry(node.getEntry(i), height);
         }
       }
       else {
@@ -347,7 +325,7 @@ public abstract class AbstractRStarTree<N extends AbstractRStarTreeNode<N, E>, E
 
       // insert data
       for(E o : partition) {
-        leafNode.addLeafEntry(o);
+        leafNode.addEntry(o);
       }
       // write to file
       writeNode(leafNode);
@@ -447,8 +425,8 @@ public abstract class AbstractRStarTree<N extends AbstractRStarTreeNode<N, E>, E
     }
 
     root.setPageID(getRootID());
-    root.addDirectoryEntry(createNewDirectoryEntry(oldRoot));
-    root.addDirectoryEntry(createNewDirectoryEntry(newNode));
+    root.addEntry(createNewDirectoryEntry(oldRoot));
+    root.addEntry(createNewDirectoryEntry(newNode));
 
     writeNode(root);
     writeNode(oldRoot);
@@ -530,8 +508,7 @@ public abstract class AbstractRStarTree<N extends AbstractRStarTreeNode<N, E>, E
     N childNode = getNode(node.getEntry(0));
     int num = settings.insertionStrategy.choose(node, NodeArrayAdapter.STATIC, mbr, height, cur);
     newSubtree = new IndexTreePath<>(subtree, node.getEntry(num), num);
-    ++cur;
-    if(cur == depth) {
+    if(++cur == depth) {
       return newSubtree;
     }
     // children are leafs
@@ -593,7 +570,6 @@ public abstract class AbstractRStarTree<N extends AbstractRStarTreeNode<N, E>, E
    */
   public void reInsert(N node, IndexTreePath<E> path, int[] offs) {
     final int depth = path.getPathCount();
-
     long[] remove = BitsUtil.zero(node.getCapacity());
     List<E> reInsertEntries = new ArrayList<>(offs.length);
     for(int i = 0; i < offs.length; i++) {
@@ -623,19 +599,13 @@ public abstract class AbstractRStarTree<N extends AbstractRStarTreeNode<N, E>, E
 
     // reinsert the first entries
     final Logging log = getLogger();
+    // Tree could grow during reinsertions, this is messy.
+    final int oldheight = height;
     for(E entry : reInsertEntries) {
-      if(node.isLeaf()) {
-        if(log.isDebugging()) {
-          log.debug("reinsert " + entry);
-        }
-        insertLeafEntry(entry);
+      if(log.isDebugging()) {
+        log.debug("reinsert " + entry + " at " + (depth + height - oldheight));
       }
-      else {
-        if(log.isDebugging()) {
-          log.debug("reinsert " + entry + " at " + depth);
-        }
-        insertDirectoryEntry(entry, depth);
-      }
+      insertEntry(entry, (depth + height - oldheight));
     }
   }
 
@@ -674,7 +644,7 @@ public abstract class AbstractRStarTree<N extends AbstractRStarTreeNode<N, E>, E
           if(log.isDebugging()) {
             log.debugFine("parent " + parent);
           }
-          parent.addDirectoryEntry(createNewDirectoryEntry(split));
+          parent.addEntry(createNewDirectoryEntry(split));
 
           // adjust the entry representing the (old) node, that has
           // been split
@@ -717,7 +687,7 @@ public abstract class AbstractRStarTree<N extends AbstractRStarTreeNode<N, E>, E
    * @param stack the stack holding the nodes to be reinserted after the tree
    *        has been condensed
    */
-  private void condenseTree(IndexTreePath<E> subtree, Stack<N> stack) {
+  private void condenseTree(IndexTreePath<E> subtree, ArrayDeque<N> stack) {
     N node = getNode(subtree.getEntry());
     // node is not root
     if(!isRoot(node)) {
@@ -743,20 +713,10 @@ public abstract class AbstractRStarTree<N extends AbstractRStarTreeNode<N, E>, E
     else {
       if(hasUnderflow(node) && node.getNumEntries() == 1 && !node.isLeaf()) {
         N child = getNode(node.getEntry(0));
-        final N newRoot;
-        if(child.isLeaf()) {
-          newRoot = createNewLeafNode();
-          newRoot.setPageID(getRootID());
-          for(int i = 0; i < child.getNumEntries(); i++) {
-            newRoot.addLeafEntry(child.getEntry(i));
-          }
-        }
-        else {
-          newRoot = createNewDirectoryNode();
-          newRoot.setPageID(getRootID());
-          for(int i = 0; i < child.getNumEntries(); i++) {
-            newRoot.addDirectoryEntry(child.getEntry(i));
-          }
+        N newRoot = child.isLeaf() ? createNewLeafNode() : createNewDirectoryNode();
+        newRoot.setPageID(getRootID());
+        for(int i = 0; i < child.getNumEntries(); i++) {
+          newRoot.addEntry(child.getEntry(i));
         }
         writeNode(newRoot);
         height--;
@@ -764,7 +724,13 @@ public abstract class AbstractRStarTree<N extends AbstractRStarTreeNode<N, E>, E
     }
   }
 
-  @Override
+  /**
+   * Returns a list of entries pointing to the leaf entries of this spatial
+   * index.
+   *
+   * @return a list of entries pointing to the leaf entries of this spatial
+   *         index
+   */
   public final List<E> getLeaves() {
     List<E> result = new ArrayList<>();
     if(height == 1) {
@@ -772,7 +738,7 @@ public abstract class AbstractRStarTree<N extends AbstractRStarTreeNode<N, E>, E
       return result;
     }
 
-    getLeafNodes(getRoot(), result, height);
+    getLeafNodeEntries(getNode(getRootID()), result, height);
     return result;
   }
 
@@ -783,7 +749,7 @@ public abstract class AbstractRStarTree<N extends AbstractRStarTreeNode<N, E>, E
    * @param result the result to store the ids in
    * @param currentLevel the level of the node in the R-Tree
    */
-  private void getLeafNodes(N node, List<E> result, int currentLevel) {
+  private void getLeafNodeEntries(N node, List<E> result, int currentLevel) {
     // Level 1 are the leaf nodes, Level 2 is the one atop!
     if(currentLevel == 2) {
       for(int i = 0; i < node.getNumEntries(); i++) {
@@ -792,7 +758,7 @@ public abstract class AbstractRStarTree<N extends AbstractRStarTreeNode<N, E>, E
     }
     else {
       for(int i = 0; i < node.getNumEntries(); i++) {
-        getLeafNodes(getNode(node.getEntry(i)), result, (currentLevel - 1));
+        getLeafNodeEntries(getNode(node.getEntry(i)), result, currentLevel - 1);
       }
     }
   }
@@ -802,7 +768,7 @@ public abstract class AbstractRStarTree<N extends AbstractRStarTreeNode<N, E>, E
    */
   public void doExtraIntegrityChecks() {
     if(EXTRA_INTEGRITY_CHECKS) {
-      getRoot().integrityCheck(this);
+      getNode(getRootID()).integrityCheck(this);
     }
   }
 
@@ -895,58 +861,42 @@ public abstract class AbstractRStarTree<N extends AbstractRStarTreeNode<N, E>, E
     }
   }
 
-  /**
-   * Returns a string representation of this R*-Tree.
-   *
-   * @return a string representation of this R*-Tree
-   */
   @Override
   public String toString() {
-    StringBuilder result = new StringBuilder();
-    int dirNodes = 0;
-    int leafNodes = 0;
-    int objects = 0;
-    int levels = 0;
+    StringBuilder result = new StringBuilder(1000);
+    if(!initialized) {
+      return result.append(getClass().getName()).append(" is not initialized.").toString();
+    }
+    N node = getNode(getRootID());
+    int dim = getRootEntry().getDimensionality();
 
-    if(initialized) {
-      N node = getRoot();
-      int dim = getRootEntry().getDimensionality();
-
-      while(!node.isLeaf()) {
-        if(node.getNumEntries() > 0) {
-          E entry = node.getEntry(0);
-          node = getNode(entry);
-          levels++;
-        }
+    int dirNodes = 0, leafNodes = 0, objects = 0, levels = 0;
+    while(!node.isLeaf()) {
+      if(node.getNumEntries() > 0) {
+        node = getNode(node.getEntry(0));
+        levels++;
       }
+    }
 
-      BreadthFirstEnumeration<N, E> enumeration = new BreadthFirstEnumeration<>(this, getRootPath());
-      while(enumeration.hasNext()) {
-        IndexTreePath<E> indexPath = enumeration.next();
-        E entry = indexPath.getEntry();
-        if(entry instanceof LeafEntry) {
-          objects++;
+    BreadthFirstEnumeration<N, E> enumeration = new BreadthFirstEnumeration<>(this, getRootPath());
+    while(enumeration.hasNext()) {
+      E entry = enumeration.next().getEntry();
+      if(entry instanceof LeafEntry) {
+        objects++;
+      }
+      else {
+        node = getNode(entry);
+        if(node.isLeaf()) {
+          leafNodes++;
         }
         else {
-          node = getNode(entry);
-          if(node.isLeaf()) {
-            leafNodes++;
-          }
-          else {
-            dirNodes++;
-          }
+          dirNodes++;
         }
       }
-      result.append(getClass().getName()).append(" has ").append((levels + 1)).append(" levels.\n") //
-          .append(dirNodes).append(" Directory Knoten (max = ").append(dirCapacity).append(", min = ").append(dirMinimum).append(")\n") //
-          .append(leafNodes).append(" Daten Knoten (max = ").append(leafCapacity).append(", min = ").append(leafMinimum).append(")\n") //
-          .append(objects).append(' ').append(dim).append("-dim. Punkte im Baum \n");
-      // PageFileUtil.appendPageFileStatistics(result, getPageFileStatistics());
     }
-    else {
-      result.append(getClass().getName()).append(" is empty!\n");
-    }
-
-    return result.toString();
+    return result.append(getClass().getName()).append(" has ").append((levels + 1)).append(" levels.\n") //
+        .append(dirNodes).append(" directory node (max = ").append(dirCapacity).append(", min = ").append(dirMinimum).append(")\n") //
+        .append(leafNodes).append(" leaf node (max = ").append(leafCapacity).append(", min = ").append(leafMinimum).append(")\n") //
+        .append(objects).append(' ').append(dim).append("-dim. objects").toString();
   }
 }

@@ -27,16 +27,12 @@ import org.junit.Test;
 import elki.algorithm.AbstractSimpleAlgorithmTest;
 import elki.clustering.trivial.ByLabelClustering;
 import elki.clustering.trivial.TrivialAllInOne;
-import elki.clustering.trivial.TrivialAllNoise;
-import elki.data.Clustering;
-import elki.data.model.Model;
 import elki.database.Database;
-import elki.evaluation.clustering.ClusterContingencyTable;
+import elki.math.MeanVariance;
 
 /**
  * Validate {@link ClusterContingencyTable} with respect to its ability to
- * compare
- * data clusterings.
+ * compare data clusterings.
  *
  * @author Erich Schubert
  * @since 0.7.0
@@ -48,29 +44,18 @@ public class ClusterContingencyTableTest {
   // size of the data set
   int shoulds = 600;
 
-  /**
-   * Validate {@link ClusterContingencyTable} with respect to its ability to
-   * compare data clusterings.
-   */
   @Test
-  public void testCompareDatabases() {
+  public void testGiniMeasure() {
     Database db = AbstractSimpleAlgorithmTest.makeSimpleDatabase(dataset, shoulds);
+    ClusterContingencyTable table = new ClusterContingencyTable(true, false, //
+        new TrivialAllInOne().autorun(db), new ByLabelClustering().autorun(db));
 
-    Clustering<Model> rai = new TrivialAllInOne().autorun(db);
-    Clustering<Model> ran = new TrivialAllNoise().autorun(db);
-    Clustering<?> rbl = new ByLabelClustering().autorun(db);
+    MeanVariance v1 = table.averageSymmetricGini();
+    assertEquals(2 / 3., v1.getMean(), 0);
+    assertEquals(0.11111111111111112, v1.getPopulationVariance(), 0);
 
-    assertEquals(1.0, computeFMeasure(rai, rai, false), Double.MIN_VALUE);
-    assertEquals(1.0, computeFMeasure(ran, ran, false), Double.MIN_VALUE);
-    assertEquals(1.0, computeFMeasure(rbl, rbl, false), Double.MIN_VALUE);
-
-    assertEquals(0.009950248756218905, computeFMeasure(ran, rbl, true), Double.MIN_VALUE);
-    assertEquals(0.0033277870216306157, computeFMeasure(rai, ran, true), Double.MIN_VALUE);
-
-    assertEquals(0.5 /* 0.3834296724470135 */, computeFMeasure(rai, rbl, false), Double.MIN_VALUE);
-  }
-
-  private double computeFMeasure(Clustering<?> c1, Clustering<?> c2, boolean noise) {
-    return new ClusterContingencyTable(true, noise, c1, c2).getPaircount().f1Measure();
+    MeanVariance v2 = table.adjustedSymmetricGini();
+    assertEquals(Double.NaN, v2.getMean(), 0);
+    assertEquals(Double.NaN, v2.getPopulationVariance(), 0);
   }
 }

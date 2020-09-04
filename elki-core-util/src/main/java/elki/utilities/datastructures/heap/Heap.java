@@ -24,10 +24,9 @@ import java.util.Arrays;
 import java.util.Comparator;
 
 /**
- * Basic in-memory heap structure. Closely related to a
- * {@link java.util.PriorityQueue}, but here we can override methods to obtain
- * e.g. a {@link TopBoundedHeap}
- * 
+ * Basic in-memory heap structure. Similar to a {@link java.util.PriorityQueue},
+ * but with some additional operations.
+ * <p>
  * Additionally, this heap is built lazily: if you first add many elements, then
  * poll the heap, it will be bulk-loaded in O(n) instead of iteratively built in
  * O(n log n). This is implemented via a simple validTo counter.
@@ -111,29 +110,33 @@ public class Heap<E> {
    * @param e Element to add
    */
   public void add(E e) {
-    // resize when needed
-    if(size + 1 > queue.length) {
-      resize(size + 1);
+    if(++size > queue.length) {
+      queue = Arrays.copyOf(queue, HeapUtil.nextSize(queue.length));
     }
-    // final int pos = size;
-    this.size += 1;
     heapifyUp(size - 1, e);
     heapModified();
   }
 
   /**
-   * Combined operation that removes the top element, and inserts a new element
-   * instead.
+   * Add an element to the heap.
    * 
-   * @param e New element to insert
-   * @return Previous top element of the heap
+   * @param e Element to add
+   * @param maxsize Maximum size
    */
-  @SuppressWarnings("unchecked")
-  public E replaceTopElement(E e) {
-    E oldroot = (E) queue[0];
-    heapifyDown(0, e);
+  public void add(E e, int maxsize) {
+    if(size == maxsize) {
+      if(comparator.compare(e, queue[0]) > 0) {
+        // Replace top element, and repair:
+        heapifyDown(0, e);
+        heapModified();
+      }
+      return;
+    }
+    if(++size > queue.length) {
+      queue = Arrays.copyOf(queue, HeapUtil.nextSize(queue.length));
+    }
+    heapifyUp(size - 1, e);
     heapModified();
-    return oldroot;
   }
 
   /**
@@ -151,29 +154,16 @@ public class Heap<E> {
    * 
    * @return Top element.
    */
-  public E poll() {
-    return removeAt(0);
-  }
-
-  /**
-   * Remove the element at the given position.
-   * 
-   * @param pos Element position.
-   * @return Element that was at this position.
-   */
   @SuppressWarnings("unchecked")
-  protected E removeAt(int pos) {
-    if(pos < 0 || pos >= size) {
+  public E poll() {
+    if(size == 0) {
       return null;
     }
-    final E ret = (E) queue[pos];
-    // Replacement object:
-    final Object reinsert = queue[size - 1];
-    queue[size - 1] = null;
-    size--;
-    heapifyDown(pos, reinsert);
+    Object ret = queue[0], reinsert = queue[--size];
+    queue[size] = null;
+    heapifyDown(0, reinsert);
     heapModified();
-    return ret;
+    return (E) ret;
   }
 
   /**
@@ -255,31 +245,10 @@ public class Heap<E> {
   }
 
   /**
-   * Test whether we need to resize to have the requested capacity.
-   * 
-   * @param requiredSize required capacity
-   */
-  protected final void resize(int requiredSize) {
-    // Double until 64, then increase by 50% each time.
-    int newCapacity = ((queue.length < 64) ? ((queue.length + 1) << 1) : ((queue.length >> 1) + queue.length));
-    // overflow?
-    if(newCapacity < 0) {
-      throw new OutOfMemoryError();
-    }
-    if(requiredSize > newCapacity) {
-      newCapacity = requiredSize;
-    }
-    queue = Arrays.copyOf(queue, newCapacity);
-  }
-
-  /**
    * Clear the heap.
    */
   public void clear() {
-    // clean up references in the array for memory management
-    for(int i = 0; i < size; i++) {
-      queue[i] = null;
-    }
+    Arrays.fill(queue, 0, size, null);
     this.size = 0;
     heapModified();
   }
@@ -302,7 +271,7 @@ public class Heap<E> {
 
   /**
    * Test whether the heap is still valid.
-   * 
+   * <p>
    * Debug method.
    * 
    * @return {@code null} when the heap is correct

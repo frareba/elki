@@ -24,7 +24,6 @@ import elki.index.Index;
 import elki.logging.Logging;
 import elki.logging.statistics.LongStatistic;
 import elki.persistent.PageFile;
-import elki.utilities.exceptions.AbortException;
 
 /**
  * Abstract super class for all tree based index classes.
@@ -39,7 +38,7 @@ import elki.utilities.exceptions.AbortException;
  * @param <N> the type of Node used in the index
  * @param <E> the type of Entry used in the index
  */
-public abstract class IndexTree<N extends Node<E>, E extends Entry> implements Index {
+public abstract class IndexTree<N extends Node<E>, E> implements Index {
   /**
    * The file storing the entries of this index.
    */
@@ -125,15 +124,6 @@ public abstract class IndexTree<N extends Node<E>, E extends Entry> implements I
   }
 
   /**
-   * Reads the root node of this index from the file.
-   *
-   * @return the root node of this index
-   */
-  public N getRoot() {
-    return file.readPage(getPageID(rootEntry));
-  }
-
-  /**
    * Test if a given ID is the root.
    *
    * @param page Page to test
@@ -149,9 +139,9 @@ public abstract class IndexTree<N extends Node<E>, E extends Entry> implements I
    * @param entry Entry
    * @return Page ID
    */
-  protected int getPageID(Entry entry) {
-    if(entry instanceof LeafEntry) {
-      throw new AbortException("Leafs do not have page ids!");
+  protected int getPageID(E entry) {
+    if(!(entry instanceof DirectoryEntry)) {
+      throw new IllegalStateException("Leafs do not have page ids!");
     }
     return ((DirectoryEntry) entry).getPageID();
   }
@@ -163,7 +153,7 @@ public abstract class IndexTree<N extends Node<E>, E extends Entry> implements I
    * @return the node with the specified id
    */
   public N getNode(int nodeID) {
-    return nodeID == getPageID(rootEntry) ? getRoot() : file.readPage(nodeID);
+    return file.readPage(nodeID);
   }
 
   /**
@@ -172,7 +162,7 @@ public abstract class IndexTree<N extends Node<E>, E extends Entry> implements I
    * @param entry the entry representing the node to be returned
    * @return the node that is represented by the specified entry
    */
-  public final N getNode(E entry) {
+  public N getNode(E entry) {
     return getNode(getPageID(entry));
   }
 
@@ -308,9 +298,6 @@ public abstract class IndexTree<N extends Node<E>, E extends Entry> implements I
     // Default is no-op.
   }
 
-  /**
-   * Log some statistics, if enabled.
-   */
   @Override
   public void logStatistics() {
     file.logStatistics();
@@ -326,25 +313,7 @@ public abstract class IndexTree<N extends Node<E>, E extends Entry> implements I
   }
 
   /**
-   * Get the minimum fill of a directory page (except root).
-   *
-   * @return Minimum fill
-   */
-  public int getDirMinimum() {
-    return dirMinimum;
-  }
-
-  /**
-   * Get the minimum fill of a leaf page (except root).
-   *
-   * @return Minimum fill
-   */
-  public int getLeafMinimum() {
-    return leafMinimum;
-  }
-
-  /**
-   * Directly access the backing page file.
+   * Directly access the backing page file, still used by the old xtree code.
    *
    * @return the page file
    */

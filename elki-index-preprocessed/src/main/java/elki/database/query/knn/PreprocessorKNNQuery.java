@@ -27,14 +27,12 @@ import elki.index.preprocessed.knn.AbstractMaterializeKNNPreprocessor;
 import elki.logging.Logging;
 
 /**
- * Instance for a particular database, invoking the preprocessor.
+ * Use precomputed kNN.
  *
  * @author Erich Schubert
  * @since 0.4.0
- *
- * @param <O> Data object type
  */
-public class PreprocessorKNNQuery<O> implements KNNSearcher<DBIDRef> {
+public class PreprocessorKNNQuery implements KNNSearcher<DBIDRef> {
   /**
    * Class logger
    */
@@ -43,12 +41,12 @@ public class PreprocessorKNNQuery<O> implements KNNSearcher<DBIDRef> {
   /**
    * The data to use for this query
    */
-  final protected Relation<? extends O> relation;
+  protected final Relation<?> relation;
 
   /**
    * The last preprocessor result
    */
-  final private AbstractMaterializeKNNPreprocessor<O> preprocessor;
+  private final AbstractMaterializeKNNPreprocessor<?> preprocessor;
 
   /**
    * Warn only once.
@@ -61,7 +59,7 @@ public class PreprocessorKNNQuery<O> implements KNNSearcher<DBIDRef> {
    * @param relation Relation to query
    * @param preprocessor Preprocessor instance to use
    */
-  public PreprocessorKNNQuery(Relation<? extends O> relation, AbstractMaterializeKNNPreprocessor<O> preprocessor) {
+  public PreprocessorKNNQuery(Relation<?> relation, AbstractMaterializeKNNPreprocessor<?> preprocessor) {
     super();
     this.relation = relation;
     this.preprocessor = preprocessor;
@@ -82,7 +80,7 @@ public class PreprocessorKNNQuery<O> implements KNNSearcher<DBIDRef> {
    *
    * @return preprocessor instance
    */
-  public AbstractMaterializeKNNPreprocessor<O> getPreprocessor() {
+  public AbstractMaterializeKNNPreprocessor<?> getPreprocessor() {
     return preprocessor;
   }
 

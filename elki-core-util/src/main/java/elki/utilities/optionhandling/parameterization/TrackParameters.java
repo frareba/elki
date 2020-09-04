@@ -28,7 +28,7 @@ import elki.utilities.optionhandling.parameters.Parameter;
 
 /**
  * Utility wrapper to track parameters for a configuration session.
- *
+ * <p>
  * All actual Parameterization operations are forwarded to the inner class.
  *
  * @author Erich Schubert
@@ -143,7 +143,7 @@ public class TrackParameters implements Parameterization {
 
   /**
    * {@inheritDoc}
-   *
+   * <p>
    * Track parameters using a shared options list with parent tracker.
    */
   @Override
@@ -157,11 +157,7 @@ public class TrackParameters implements Parameterization {
       LoggingUtil.exception("Options shouldn't have themselves as parents!", new Throwable());
     }
     parents.put(opt, owner);
-    List<Object> c = children.get(owner);
-    if(c == null) {
-      c = new ArrayList<>();
-      children.put(owner, c);
-    }
+    List<Object> c = children.computeIfAbsent(owner, x -> new ArrayList<>());
     if(!c.contains(opt)) {
       c.add(opt);
     }

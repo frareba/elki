@@ -63,15 +63,13 @@ import elki.utilities.optionhandling.parameterization.Parameterization;
  * @author Elke Achtert
  * @author Erich Schubert
  * @since 0.7.0
- *
- * @param <V> the type of NumberVector handled by this Algorithm
  */
 @Reference(authors = "Elke Achtert, Christian Böhm, Hans-Peter Kriegel, Peer Kröger, Arthur Zimek", //
     title = "On Exploring Complex Relationships of Correlation Clusters", //
     booktitle = "Proc. 19th Int. Conf. Scientific and Statistical Database Management (SSDBM 2007)", //
     url = "https://doi.org/10.1109/SSDBM.2007.21", //
     bibkey = "DBLP:conf/ssdbm/AchtertBKKZ07")
-public class ERiCNeighborPredicate<V extends NumberVector> implements NeighborPredicate<DBIDs> {
+public class ERiCNeighborPredicate implements NeighborPredicate<DBIDs> {
   /**
    * The logger for this class.
    */
@@ -100,7 +98,7 @@ public class ERiCNeighborPredicate<V extends NumberVector> implements NeighborPr
 
   @Override
   public Instance instantiate(Database database) {
-    return instantiate(database.<V> getRelation(TypeUtil.NUMBER_VECTOR_FIELD));
+    return instantiate(database.getRelation(TypeUtil.NUMBER_VECTOR_FIELD));
   }
 
   /**
@@ -109,7 +107,7 @@ public class ERiCNeighborPredicate<V extends NumberVector> implements NeighborPr
    * @param relation Relation
    * @return Instance
    */
-  public Instance instantiate(Relation<V> relation) {
+  public Instance instantiate(Relation<? extends NumberVector> relation) {
     KNNSearcher<DBIDRef> knnq = new QueryBuilder<>(relation, EuclideanDistance.STATIC).kNNByDBID(settings.k);
     WritableDataStore<PCAFilteredResult> storage = DataStoreUtil.makeStorage(relation.getDBIDs(), DataStoreFactory.HINT_HOT | DataStoreFactory.HINT_TEMP, PCAFilteredResult.class);
 
@@ -193,11 +191,7 @@ public class ERiCNeighborPredicate<V extends NumberVector> implements NeighborPr
      * @return {@code true} when the two vectors are close enough.
      */
     public boolean strongNeighbors(NumberVector v1, NumberVector v2, PCAFilteredResult pca1, PCAFilteredResult pca2) {
-      if(pca1.getCorrelationDimension() != pca2.getCorrelationDimension()) {
-        return false;
-      }
-
-      if(!approximatelyLinearDependent(pca1, pca2) || !approximatelyLinearDependent(pca2, pca1)) {
+      if(pca1.getCorrelationDimension() != pca2.getCorrelationDimension() || !approximatelyLinearDependent(pca1, pca2) || !approximatelyLinearDependent(pca2, pca1)) {
         return false;
       }
 
@@ -235,14 +229,14 @@ public class ERiCNeighborPredicate<V extends NumberVector> implements NeighborPr
      * up the same space. Note, that the first PCA must have at least as many
      * strong eigenvectors than the second PCA.
      * 
-     * @param pca1 first PCA
-     * @param pca2 second PCA
+     * @param p1 first PCA
+     * @param p2 second PCA
      * @return true, if the strong eigenvectors of the two specified PCAs span
      *         up the same space
      */
-    protected boolean approximatelyLinearDependent(PCAFilteredResult pca1, PCAFilteredResult pca2) {
-      double[][] m1_czech = pca1.dissimilarityMatrix();
-      double[][] v2_strong = pca2.getStrongEigenvectors();
+    protected boolean approximatelyLinearDependent(PCAFilteredResult p1, PCAFilteredResult p2) {
+      double[][] m1_czech = p1.dissimilarityMatrix();
+      double[][] v2_strong = p2.getStrongEigenvectors();
       for(int i = 0; i < v2_strong.length; i++) {
         double[] v2_i = v2_strong[i];
         // check, if distance of v2_i to the space of pca_1 > delta
@@ -273,7 +267,7 @@ public class ERiCNeighborPredicate<V extends NumberVector> implements NeighborPr
    * 
    * @author Erich Schubert
    */
-  public static class Par<V extends NumberVector> implements Parameterizer {
+  public static class Par implements Parameterizer {
     /**
      * ERiC settings.
      */
@@ -285,8 +279,8 @@ public class ERiCNeighborPredicate<V extends NumberVector> implements NeighborPr
     }
 
     @Override
-    public ERiCNeighborPredicate<V> make() {
-      return new ERiCNeighborPredicate<>(settings);
+    public ERiCNeighborPredicate make() {
+      return new ERiCNeighborPredicate(settings);
     }
   }
 }

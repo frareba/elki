@@ -30,7 +30,7 @@ import elki.data.type.TypeInformation;
 import elki.data.type.TypeUtil;
 import elki.database.datastore.DataStore;
 import elki.database.ids.DBID;
-import elki.database.ids.DBIDUtil;
+import elki.database.ids.DBIDRef;
 import elki.database.ids.DBIDs;
 import elki.database.ids.KNNList;
 import elki.database.relation.Relation;
@@ -39,7 +39,6 @@ import elki.distance.minkowski.EuclideanDistance;
 import elki.index.tree.IndexTreePath;
 import elki.index.tree.LeafEntry;
 import elki.index.tree.spatial.SpatialDirectoryEntry;
-import elki.index.tree.spatial.SpatialEntry;
 import elki.index.tree.spatial.rstarvariants.deliclu.*;
 import elki.logging.Logging;
 import elki.logging.progress.FiniteProgress;
@@ -152,7 +151,7 @@ public class DeLiClu<V extends NumberVector> implements OPTICSTypeAlgorithm {
     if(LOG.isVerbose()) {
       LOG.verbose("Performing kNN join");
     }
-    DataStore<KNNList> knns = new KNNJoin<V, DeLiCluNode, DeLiCluEntry>(distance, minpts).run(index, relation.getDBIDs());
+    DataStore<KNNList> knns = new KNNJoin(distance, minpts).run(index, relation.getDBIDs());
     DBIDs ids = relation.getDBIDs();
     final int size = ids.size();
 
@@ -163,11 +162,11 @@ public class DeLiClu<V extends NumberVector> implements OPTICSTypeAlgorithm {
     heap = new UpdatableHeap<>();
 
     // add start object to cluster order and (root, root) to priority queue
-    DBID startID = DBIDUtil.deref(ids.iter());
+    DBIDRef startID = ids.iter();
     clusterOrder.add(startID, Double.POSITIVE_INFINITY, null);
     int numHandled = 1;
     index.setHandled(startID, relation.get(startID));
-    SpatialDirectoryEntry rootEntry = (SpatialDirectoryEntry) index.getRootEntry();
+    DeLiCluEntry rootEntry = index.getRootEntry();
     SpatialObjectPair spatialObjectPair = new SpatialObjectPair(0., rootEntry, rootEntry, true);
     heap.add(spatialObjectPair);
 
@@ -317,7 +316,7 @@ public class DeLiClu<V extends NumberVector> implements OPTICSTypeAlgorithm {
 
   private void reinsertExpanded(DeLiCluTree index, List<IndexTreePath<DeLiCluEntry>> path, int pos, DeLiCluEntry parentEntry, DataStore<KNNList> knns) {
     DeLiCluNode parentNode = index.getNode(parentEntry);
-    SpatialEntry entry2 = path.get(pos).getEntry();
+    DeLiCluEntry entry2 = path.get(pos).getEntry();
     SpatialPrimitiveDistance<? super V> distFunction = distance;
 
     if(entry2 instanceof LeafEntry) {
@@ -361,12 +360,12 @@ public class DeLiClu<V extends NumberVector> implements OPTICSTypeAlgorithm {
     /**
      * The first entry of this pair.
      */
-    SpatialEntry entry1;
+    DeLiCluEntry entry1;
 
     /**
      * The second entry of this pair.
      */
-    SpatialEntry entry2;
+    DeLiCluEntry entry2;
 
     /**
      * Indicates whether this pair is expandable or not.
@@ -386,7 +385,7 @@ public class DeLiClu<V extends NumberVector> implements OPTICSTypeAlgorithm {
      * @param isExpandable if true, this pair is expandable (a pair of nodes),
      *        otherwise this pair is not expandable (a pair of objects)
      */
-    public SpatialObjectPair(double distance, SpatialEntry entry1, SpatialEntry entry2, boolean isExpandable) {
+    public SpatialObjectPair(double distance, DeLiCluEntry entry1, DeLiCluEntry entry2, boolean isExpandable) {
       this.distance = distance;
       this.entry1 = entry1;
       this.entry2 = entry2;

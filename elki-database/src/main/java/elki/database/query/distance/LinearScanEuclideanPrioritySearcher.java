@@ -116,7 +116,7 @@ public abstract class LinearScanEuclideanPrioritySearcher<Q, O extends NumberVec
   }
 
   @Override
-  public DBIDIter advance() {
+  public PrioritySearcher<Q> advance() {
     iter.advance();
     curdist = curdistsq = Double.NaN;
     return this;
@@ -167,6 +167,11 @@ public abstract class LinearScanEuclideanPrioritySearcher<Q, O extends NumberVec
   public double getUpperBound() {
     return curdist == curdist ? curdist : //
         thresholdsq == thresholdsq && getSquaredDistance() > thresholdsq ? thresholdUp : Double.NaN;
+  }
+
+  @Override
+  public double allLowerBound() {
+    return iter.valid() ? 0 : Double.POSITIVE_INFINITY;
   }
 
   /**

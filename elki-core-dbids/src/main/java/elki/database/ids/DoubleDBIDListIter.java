@@ -21,7 +21,7 @@
 package elki.database.ids;
 
 /**
- * Iterator over double-DBID pairs results.
+ * Iterator over Double+DBID pairs results.
  * <p>
  * There is no getter for the DBID, as this implements
  * {@link elki.database.ids.DBIDRef}.
@@ -30,10 +30,8 @@ package elki.database.ids;
  * @since 0.5.5
  *
  * @opt nodefillcolor LemonChiffon
- *
- * @has - - - DoubleDBIDPair
  */
-public interface DoubleDBIDListIter extends DBIDArrayIter {
+public interface DoubleDBIDListIter extends DoubleDBIDIter, DBIDArrayIter {
   /**
    * Static empty iterator.
    */
@@ -78,13 +76,6 @@ public interface DoubleDBIDListIter extends DBIDArrayIter {
       return this;
     }
   };
-
-  /**
-   * Get the double value
-   *
-   * @return double value
-   */
-  double doubleValue();
 
   @Override
   DoubleDBIDListIter advance();

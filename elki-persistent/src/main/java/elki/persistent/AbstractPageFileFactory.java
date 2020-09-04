@@ -64,7 +64,7 @@ public abstract class AbstractPageFileFactory<P extends Page> implements PageFil
    * 
    * @param <P> Page type
    */
-  public static abstract class Par<P extends Page> implements Parameterizer {
+  public abstract static class Par<P extends Page> implements Parameterizer {
     /**
      * Parameter to specify the size of a page in bytes, must be an integer
      * greater than 0.
@@ -84,6 +84,6 @@ public abstract class AbstractPageFileFactory<P extends Page> implements PageFil
     }
 
     @Override
-    abstract public PageFileFactory<P> make();
+    public abstract PageFileFactory<P> make();
   }
 }

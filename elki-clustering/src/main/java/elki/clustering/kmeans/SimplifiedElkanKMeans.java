@@ -36,8 +36,6 @@ import elki.math.linearalgebra.VMath;
 import elki.utilities.documentation.Reference;
 import elki.utilities.optionhandling.parameterization.Parameterization;
 
-import net.jafama.FastMath;
-
 /**
  * Simplified version of Elkan's k-means by exploiting the triangle inequality.
  * <p>
@@ -162,20 +160,27 @@ public class SimplifiedElkanKMeans<V extends NumberVector> extends AbstractKMean
      * @return Number of changes (i.e. relation size)
      */
     protected int initialAssignToNearestCluster() {
-      assert (k == means.length);
+      assert k == means.length;
+      double[][] cdist = new double[k][k];
+      initialSeperation(cdist);
       for(DBIDIter it = relation.iterDBIDs(); it.valid(); it.advance()) {
         NumberVector fv = relation.get(it);
         double[] l = lower.get(it);
         // Check all (other) means:
-        double best = Double.POSITIVE_INFINITY;
-        int minIndex = -1;
-        for(int j = 0; j < k; j++) {
-          double dist = distance(fv, means[j]);
-          dist = isSquared ? FastMath.sqrt(dist) : dist;
-          l[j] = dist;
-          if(dist < best) {
-            minIndex = j;
-            best = dist;
+        double best = l[0] = sqrtdistance(fv, means[0]);
+        int minIndex = 0;
+        for(int j = 1; j < k; j++) {
+          if(best > cdist[minIndex][j]) {
+            double dist = l[j] = sqrtdistance(fv, means[j]);
+            if(dist < best) {
+              minIndex = j;
+              best = dist;
+            }
+          }
+        }
+        for(int j = 1; j < k; j++) {
+          if(l[j] == 0. && j != minIndex) {
+            l[j] = 2 * sep[j] - best;
           }
         }
         // Assign to nearest cluster.
@@ -187,12 +192,7 @@ public class SimplifiedElkanKMeans<V extends NumberVector> extends AbstractKMean
       return relation.size();
     }
 
-    /**
-     * Reassign objects, but avoid unnecessary computations based on their
-     * bounds.
-     *
-     * @return number of objects reassigned
-     */
+    @Override
     protected int assignToNearestCluster() {
       int changed = 0;
       for(DBIDIter it = relation.iterDBIDs(); it.valid(); it.advance()) {
@@ -208,17 +208,13 @@ public class SimplifiedElkanKMeans<V extends NumberVector> extends AbstractKMean
             continue; // Condition #3 i-iii not satisfied
           }
           if(recompute_u) { // Need to update bound? #3a
-            u = distance(fv, means[cur]);
-            u = isSquared ? FastMath.sqrt(u) : u;
-            upper.putDouble(it, u);
+            upper.putDouble(it, u = sqrtdistance(fv, means[cur]));
             recompute_u = false; // Once only
             if(u <= l[j]) { // #3b
               continue;
             }
           }
-          double dist = distance(fv, means[j]);
-          dist = isSquared ? FastMath.sqrt(dist) : dist;
-          l[j] = dist;
+          double dist = l[j] = sqrtdistance(fv, means[j]);
           if(dist < u) {
             cur = j;
             u = dist;

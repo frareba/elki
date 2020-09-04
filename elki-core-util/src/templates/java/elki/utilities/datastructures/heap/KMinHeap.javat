@@ -24,6 +24,8 @@ import java.util.Arrays;
 
 /**
  * Binary heap for primitive types.
+ * <p>
+ * This class is generated from a template.
  *
  * @author Erich Schubert
  * @since 0.5.5
@@ -84,13 +86,9 @@ ${extra ? "\n  " + extra.fields +"\n" : ""}
   ${raw != type && raw != "Object" ? "@SuppressWarnings(\"unchecked\")\n  " : ""}public void add(${type} o) {
     final ${raw} co = ${raw != type && raw != "Object" ? "(" + raw + ") " : ""}o;
     if(size >= twoheap.length) {
-      // Grow by one layer.
-      twoheap = Arrays.copyOf(twoheap, twoheap.length + twoheap.length + 1);
+      twoheap = Arrays.copyOf(twoheap, HeapUtil.nextSize(twoheap.length));
     }
-    final int twopos = size;
-    twoheap[twopos] = co;
-    ++size;
-    heapifyUp(twopos, co);
+    heapifyUp(size++, co);
   }
 
   @Override
@@ -131,16 +129,15 @@ ${extra ? "\n  " + extra.fields +"\n" : ""}
 
   @Override
   ${raw != type ? "@SuppressWarnings(\"unchecked\")\n  " : ""}public ${type} poll() {
+    if(size == 0) {
+      return ${zero};
+    }
     final ${raw} ret = twoheap[0];
-    --size;
+    if (--size >= 0) {
     // Replacement object:
-    if(size > 0) {
       final ${raw} reinsert = twoheap[size];
       twoheap[size] = ${zero};
       heapifyDown(reinsert);
-    }
-    else {
-      twoheap[0] = ${zero};
     }
     return ${raw != type ? "(" + type + ") " : ""}ret;
   }
@@ -177,13 +174,12 @@ ${extra ? "\n  " + extra.fields +"\n" : ""}
 
   @Override
   public String toString() {
-    StringBuilder buf = new StringBuilder();
-    buf.append(${classname}.class.getSimpleName()).append(" [");
+    StringBuilder buf = new StringBuilder(100+20*size) //
+        .append(${classname}.class.getSimpleName()).append(" [");
     for(UnsortedIter iter = new UnsortedIter(); iter.valid(); iter.advance()) {
       buf.append(iter.get()).append(',');
     }
-    buf.append(']');
-    return buf.toString();
+    return buf.append(']').toString();
   }
 
   @Override
@@ -193,7 +189,7 @@ ${extra ? "\n  " + extra.fields +"\n" : ""}
 
   /**
    * Unsorted iterator - in heap order. Does not poll the heap.
-   *
+   * <p>
    * Use this class as follows:
    *
    * <pre>

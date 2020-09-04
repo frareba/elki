@@ -89,7 +89,7 @@ public abstract class LinearScanPrioritySearcher<Q, O> implements PrioritySearch
   }
 
   @Override
-  public DBIDIter advance() {
+  public PrioritySearcher<Q> advance() {
     iter.advance();
     curdist = Double.NaN;
     return this;
@@ -128,6 +128,11 @@ public abstract class LinearScanPrioritySearcher<Q, O> implements PrioritySearch
   @Override
   public double getUpperBound() {
     return curdist; // May be NaN, if not computed yet.
+  }
+
+  @Override
+  public double allLowerBound() {
+    return iter.valid() ? 0 : Double.POSITIVE_INFINITY;
   }
 
   /**

@@ -21,6 +21,7 @@
 package elki.utilities.optionhandling.parameterization;
 
 import java.util.ArrayList;
+import java.util.Arrays;
 import java.util.List;
 
 import elki.utilities.optionhandling.ParameterException;
@@ -29,9 +30,9 @@ import elki.utilities.optionhandling.parameters.Parameter;
 /**
  * Class that allows chaining multiple parameterizations.
  * This is designed to allow overriding of some parameters for an algorithm,
- * while other can be configured via different means, e.g. given by the
+ * while other can be configured via different means, e.g., given by the
  * user on the command line.
- * 
+ * <p>
  * See {@link elki.utilities.optionhandling} package documentation
  * for examples.
  * 
@@ -43,7 +44,7 @@ public class ChainedParameterization extends AbstractParameterization {
    * Keep the list of parameterizations.
    */
   private List<Parameterization> chain = new ArrayList<>();
-  
+
   /**
    * Error target
    */
@@ -55,9 +56,7 @@ public class ChainedParameterization extends AbstractParameterization {
    * @param ps Parameterizations
    */
   public ChainedParameterization(Parameterization... ps) {
-    for(Parameterization p : ps) {
-      chain.add(p);
-    }
+    chain.addAll(Arrays.asList(ps));
   }
 
   /**
@@ -68,7 +67,7 @@ public class ChainedParameterization extends AbstractParameterization {
   public void appendParameterization(Parameterization p) {
     chain.add(p);
   }
-  
+
   @Override
   public boolean setValueForOption(Parameter<?> opt) throws ParameterException {
     for(Parameterization p : chain) {
@@ -101,21 +100,24 @@ public class ChainedParameterization extends AbstractParameterization {
 
   @Override
   public void reportError(ParameterException e) {
-    if (this.equals(this.errorTarget)) {
+    if(this.equals(this.errorTarget)) {
       super.reportError(e);
-    } else {
+    }
+    else {
       this.errorTarget.reportError(e);
     }
   }
 
-  /** {@inheritDoc}
+  /**
+   * {@inheritDoc}
+   * <p>
    * Parallel descend in all chains.
    */
   @Override
   public Parameterization descend(Object option) {
     ChainedParameterization n = new ChainedParameterization();
     n.errorsTo(this.errorTarget);
-    for (Parameterization p : this.chain) {
+    for(Parameterization p : this.chain) {
       n.appendParameterization(p.descend(option));
     }
     return n;

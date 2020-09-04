@@ -25,13 +25,13 @@ import elki.database.ids.*;
 import elki.database.query.distance.DistanceQuery;
 import elki.database.relation.Relation;
 import elki.distance.Distance;
-import elki.index.AbstractIndex;
+import elki.index.Index;
 import elki.index.IndexFactory;
 import elki.logging.Logging;
 import elki.logging.LoggingUtil;
 import elki.logging.statistics.LongStatistic;
-import elki.utilities.optionhandling.Parameterizer;
 import elki.utilities.optionhandling.OptionID;
+import elki.utilities.optionhandling.Parameterizer;
 import elki.utilities.optionhandling.constraints.CommonConstraints;
 import elki.utilities.optionhandling.parameterization.Parameterization;
 import elki.utilities.optionhandling.parameters.DoubleParameter;
@@ -48,18 +48,23 @@ import net.jafama.FastMath;
  *
  * @param <O> Object type
  */
-public abstract class AbstractCoverTree<O> extends AbstractIndex<O> {
+public abstract class AbstractCoverTree<O> implements Index {
+  /**
+   * The representation we are bound to.
+   */
+  protected final Relation<O> relation;
+
   /**
    * Constant expansion rate. 2 would be the intuitive value, but the original
    * version used 1.3, so we copy this. This means that in every level, the
    * cover radius shrinks by 1.3.
    */
-  final double expansion;
+  protected final double expansion;
 
   /**
    * Logarithm base.
    */
-  final double invLogExpansion;
+  protected final double invLogExpansion;
 
   /**
    * Remaining points are likely identical. For 1.3 this yields: -2700
@@ -92,10 +97,11 @@ public abstract class AbstractCoverTree<O> extends AbstractIndex<O> {
    * @param relation Data relation
    * @param distance Distance function
    * @param expansion Expansion rate
-   * @param truncate Truncate branches with less than this number of instances.
+   * @param truncate Truncate branches with less than this number of instances
    */
   public AbstractCoverTree(Relation<O> relation, Distance<? super O> distance, double expansion, int truncate) {
-    super(relation);
+    super();
+    this.relation = relation;
     this.distance = distance;
     this.distanceQuery = distance.instantiate(relation);
     this.truncate = truncate;
@@ -115,7 +121,7 @@ public abstract class AbstractCoverTree<O> extends AbstractIndex<O> {
   }
 
   /**
-   * Convert a distance to an upper scaling bound-
+   * Convert a distance to an upper scaling bound.
    * 
    * @param d Distance
    * @return Scaling bound
@@ -191,10 +197,10 @@ public abstract class AbstractCoverTree<O> extends AbstractIndex<O> {
    * @param collect Output list
    */
   protected void collectByCover(DBIDRef cur, ModifiableDoubleDBIDList candidates, double fmax, ModifiableDoubleDBIDList collect) {
-    assert (collect.size() == 0) : "Not empty";
+    assert collect.isEmpty() : "Not empty";
     DoubleDBIDListIter it = candidates.iter().advance(); // Except first = cur!
     while(it.valid()) {
-      assert (!DBIDUtil.equal(cur, it));
+      assert !DBIDUtil.equal(cur, it);
       final double dist = distance(cur, it);
       if(dist <= fmax) { // Collect
         collect.add(dist, it);
@@ -217,16 +223,6 @@ public abstract class AbstractCoverTree<O> extends AbstractIndex<O> {
    * @return Logger
    */
   protected abstract Logging getLogger();
-
-  @Override
-  public String getLongName() {
-    return "Cover Tree";
-  }
-
-  @Override
-  public String getShortName() {
-    return "cover-tree";
-  }
 
   /**
    * Index factory.
@@ -258,8 +254,7 @@ public abstract class AbstractCoverTree<O> extends AbstractIndex<O> {
      *
      * @param distance Distance function
      * @param expansion Expansion rate
-     * @param truncate Truncate branches with less than this number of
-     *        instances.
+     * @param truncate Truncate branches with less than this number of instances
      */
     public Factory(Distance<? super O> distance, double expansion, int truncate) {
       super();

@@ -22,6 +22,7 @@ package elki.distance.external;
 
 import java.io.IOException;
 import java.nio.file.Path;
+import java.nio.file.Paths;
 
 import elki.database.ids.DBIDRange;
 import elki.distance.AbstractDBIDRangeDistance;
@@ -80,11 +81,6 @@ public class DiskCacheBasedFloatDistance extends AbstractDBIDRangeDistance {
 
   @Override
   public double distance(int i1, int i2) {
-    // the smaller id is the first key
-    if(i1 > i2) {
-      return distance(i2, i1);
-    }
-
     try {
       return cache.getRecordBuffer(i1, i2).getFloat();
     }
@@ -133,7 +129,7 @@ public class DiskCacheBasedFloatDistance extends AbstractDBIDRangeDistance {
       FileParameter param = new FileParameter(MATRIX_ID, FileParameter.FileType.INPUT_FILE);
       param.grab(config, matrixfile -> {
         try {
-          cache = new OnDiskUpperTriangleMatrix(matrixfile, FLOAT_CACHE_MAGIC, 0, ByteArrayUtil.SIZE_FLOAT, false);
+          cache = new OnDiskUpperTriangleMatrix(Paths.get(matrixfile), FLOAT_CACHE_MAGIC, 0, ByteArrayUtil.SIZE_FLOAT, false);
         }
         catch(IOException e) {
           config.reportError(new WrongParameterValueException(param, matrixfile.toString(), e.getMessage(), e));

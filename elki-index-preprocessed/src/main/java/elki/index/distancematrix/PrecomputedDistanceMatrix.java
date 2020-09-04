@@ -34,6 +34,7 @@ import elki.distance.Distance;
 import elki.index.*;
 import elki.logging.Logging;
 import elki.logging.progress.FiniteProgress;
+import elki.logging.statistics.Duration;
 import elki.logging.statistics.LongStatistic;
 import elki.utilities.datastructures.QuickSelect;
 import elki.utilities.datastructures.arrays.DoubleIntegerArrayQuickSort;
@@ -117,6 +118,7 @@ public class PrecomputedDistanceMatrix<O> implements DistanceIndex<O>, RangeInde
     matrix = new double[msize];
     DBIDArrayIter ix = ids.iter(), iy = ids.iter();
 
+    Duration timer = LOG.newDuration(getClass().getName() + ".precomputation-time").begin();
     FiniteProgress prog = LOG.isVerbose() ? new FiniteProgress("Precomputing distance matrix", msize, LOG) : null;
     int pos = 0;
     for(ix.seek(0); ix.valid(); ix.advance()) {
@@ -130,6 +132,7 @@ public class PrecomputedDistanceMatrix<O> implements DistanceIndex<O>, RangeInde
       }
     }
     LOG.ensureCompleted(prog);
+    LOG.statistics(timer.end());
   }
 
   /**
@@ -158,16 +161,6 @@ public class PrecomputedDistanceMatrix<O> implements DistanceIndex<O>, RangeInde
     if(matrix != null) {
       LOG.statistics(new LongStatistic(this.getClass().getName() + ".matrix-size", matrix.length));
     }
-  }
-
-  @Override
-  public String getLongName() {
-    return "Precomputed Distance Matrix";
-  }
-
-  @Override
-  public String getShortName() {
-    return "distance-matrix";
   }
 
   @Override
@@ -386,7 +379,7 @@ public class PrecomputedDistanceMatrix<O> implements DistanceIndex<O>, RangeInde
     }
 
     @Override
-    public DBIDIter advance() {
+    public PrioritySearcher<DBIDRef> advance() {
       if(++off >= sorted) {
         partialSort(Math.min(sorted == 1 ? 10 : sorted + (sorted >>> 1), dists.length));
       }
@@ -412,6 +405,31 @@ public class PrecomputedDistanceMatrix<O> implements DistanceIndex<O>, RangeInde
     @Override
     public double computeExactDistance() {
       return dists[off];
+    }
+
+    @Override
+    public double getApproximateDistance() {
+      return dists[off];
+    }
+
+    @Override
+    public double getApproximateAccuracy() {
+      return 0;
+    }
+
+    @Override
+    public double getLowerBound() {
+      return dists[off];
+    }
+
+    @Override
+    public double getUpperBound() {
+      return dists[off];
+    }
+
+    @Override
+    public double allLowerBound() {
+      return off < idx.length ? 0 : Double.POSITIVE_INFINITY;
     }
 
     @Override
@@ -451,7 +469,7 @@ public class PrecomputedDistanceMatrix<O> implements DistanceIndex<O>, RangeInde
     /**
      * Nested distance function.
      */
-    final protected Distance<? super O> distance;
+    protected final Distance<? super O> distance;
 
     /**
      * Constructor.

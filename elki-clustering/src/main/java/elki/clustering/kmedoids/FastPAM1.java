@@ -23,6 +23,7 @@ package elki.clustering.kmedoids;
 import java.util.Arrays;
 
 import elki.clustering.kmedoids.initialization.KMedoidsInitialization;
+import elki.database.datastore.WritableDoubleDataStore;
 import elki.database.datastore.WritableIntegerDataStore;
 import elki.database.ids.*;
 import elki.database.query.distance.DistanceQuery;
@@ -51,7 +52,7 @@ import elki.utilities.exceptions.AbortException;
  * Erich Schubert, Peter J. Rousseeuw<br>
  * Faster k-Medoids Clustering: Improving the PAM, CLARA, and CLARANS
  * Algorithms<br>
- * preprint, to appear
+ * Proc. 12th Int. Conf. Similarity Search and Applications (SISAP'2019)
  *
  * @author Erich Schubert
  * @since 0.7.5
@@ -60,9 +61,9 @@ import elki.utilities.exceptions.AbortException;
  */
 @Reference(authors = "Erich Schubert, Peter J. Rousseeuw", //
     title = "Faster k-Medoids Clustering: Improving the PAM, CLARA, and CLARANS Algorithms", //
-    booktitle = "preprint, to appear", //
-    url = "https://arxiv.org/abs/1810.05691", //
-    bibkey = "DBLP:journals/corr/abs-1810-05691")
+    booktitle = "Proc. 12th Int. Conf. Similarity Search and Applications (SISAP'2019)", //
+    url = "https://doi.org/10.1007/978-3-030-32047-8_16", //
+    bibkey = "DBLP:conf/sisap/SchubertR19")
 @Priority(Priority.SUPPLEMENTARY) // Use FastPAM instead
 public class FastPAM1<V> extends PAM<V> {
   /**
@@ -129,11 +130,13 @@ public class FastPAM1<V> extends PAM<V> {
       // Swap phase
       DBIDVar bestid = DBIDUtil.newVar();
       DBIDArrayIter m = medoids.iter();
-      double[] cost = new double[k];
+      double[] cost = new double[k], pcost = new double[k];
       int iteration = 0;
       while(iteration < maxiter || maxiter <= 0) {
         ++iteration;
         LOG.incrementProcessed(prog);
+        // Compute costs of reassigning to the second closest medoid.
+        updatePriorCost(pcost);
         double best = Double.POSITIVE_INFINITY;
         int bestcluster = -1;
         // Iterate over all non-medoids:
@@ -142,13 +145,14 @@ public class FastPAM1<V> extends PAM<V> {
           if(DBIDUtil.equal(m.seek(assignment.intValue(h) & 0x7FFF), h)) {
             continue; // This is a medoid.
           }
+          // Initialize with medoid removal cost:
+          System.arraycopy(pcost, 0, cost, 0, pcost.length);
           // The cost we get back by making the non-medoid h medoid.
-          Arrays.fill(cost, -nearest.doubleValue(h));
-          computeReassignmentCost(h, cost);
+          final double acc = computeReassignmentCost(h, cost);
 
           // Find the best possible swap for h:
           for(int i = 0; i < k; i++) {
-            final double costi = cost[i];
+            final double costi = cost[i] + acc;
             if(costi < best) {
               best = costi;
               bestid.set(h);
@@ -170,12 +174,27 @@ public class FastPAM1<V> extends PAM<V> {
       LOG.setCompleted(prog);
       if(LOG.isStatistics()) {
         LOG.statistics(new LongStatistic(KEY + ".iterations", iteration));
+        LOG.statistics(new DoubleStatistic(KEY + ".final-cost", tc));
       }
       // Cleanup
       for(DBIDIter it = ids.iter(); it.valid(); it.advance()) {
         assignment.putInt(it, assignment.intValue(it) & 0x7FFF);
       }
       return tc;
+    }
+
+    /**
+     * Prior assignment costs.
+     *
+     * @param pcost Prior cost.
+     */
+    protected void updatePriorCost(double[] pcost) {
+      WritableIntegerDataStore a = assignment;
+      WritableDoubleDataStore s = second, n = nearest;
+      Arrays.fill(pcost, 0);
+      for(DBIDIter j = ids.iter(); j.valid(); j.advance()) {
+        pcost[a.intValue(j) & 0x7FFF] += s.doubleValue(j) - n.doubleValue(j);
+      }
     }
 
     /**
@@ -189,8 +208,8 @@ public class FastPAM1<V> extends PAM<V> {
       DBIDArrayIter miter = means.iter();
       double cost = 0.;
       for(DBIDIter iditer = ids.iter(); iditer.valid(); iditer.advance()) {
-        double mindist = Double.POSITIVE_INFINITY,
-            mindist2 = Double.POSITIVE_INFINITY;
+        double mindist = Double.POSITIVE_INFINITY;
+        double mindist2 = Double.POSITIVE_INFINITY;
         int minindx = -1, minindx2 = -1;
         for(miter.seek(0); miter.valid(); miter.advance()) {
           final double dist = distQ.distance(iditer, miter);
@@ -219,35 +238,31 @@ public class FastPAM1<V> extends PAM<V> {
     /**
      * Compute the reassignment cost, for all medoids in one pass.
      *
-     * @param h Current object to swap with any medoid.
-     * @param cost Cost aggregation array, must have size k
+     * @param xj Current object to swap with any medoid.
+     * @param loss Loss change aggregation array, must have size k
+     * @return Loss change accumulator that applies to all
      */
-    protected void computeReassignmentCost(DBIDRef h, double[] cost) {
-      // Compute costs of reassigning other objects j:
-      for(DBIDIter j = ids.iter(); j.valid(); j.advance()) {
-        if(DBIDUtil.equal(h, j)) {
-          continue;
+    protected double computeReassignmentCost(DBIDRef xj, double[] loss) {
+      final WritableDoubleDataStore nearest = this.nearest;
+      final WritableDoubleDataStore second = this.second;
+      final WritableIntegerDataStore assignment = this.assignment;
+      double acc = 0.;
+      // Compute costs of reassigning other objects o:
+      for(DBIDIter xo = ids.iter(); xo.valid(); xo.advance()) {
+        final double dn = nearest.doubleValue(xo), ds = second.doubleValue(xo);
+        final double dxo = distQ.distance(xj, xo);
+        // Case (i): new medoid is closest:
+        if(dxo < dn) {
+          acc += dxo - dn;
+          // loss already includes ds - dn, remove
+          loss[assignment.intValue(xo) & 0x7FFF] += dn - ds;
         }
-        // distance(j, i) for pi == pj
-        final double distcur = nearest.doubleValue(j);
-        // distance(j, o) to second nearest / possible reassignment
-        final double distsec = second.doubleValue(j);
-        // distance(j, h) to new medoid
-        final double dist_h = distQ.distance(h, j);
-        // Case 1b: j switches to new medoid, or to the second nearest:
-        final int pj = assignment.intValue(j) & 0x7FFF;
-        cost[pj] += Math.min(dist_h, distsec) - distcur;
-        if(dist_h < distcur) {
-          final double delta = dist_h - distcur;
-          // Case 1c: j is closer to h than its current medoid
-          for(int pi = 0; pi < pj; pi++) {
-            cost[pi] += delta;
-          }
-          for(int pi = pj + 1; pi < cost.length; pi++) {
-            cost[pi] += delta;
-          }
-        } // else Case 1a): j is closer to i than h and m, so no change.
+        else if(dxo < ds) {
+          // loss already includes ds - dn, adjust to d(xo) - dn
+          loss[assignment.intValue(xo) & 0x7FFF] += dxo - ds;
+        }
       }
+      return acc;
     }
 
     /**

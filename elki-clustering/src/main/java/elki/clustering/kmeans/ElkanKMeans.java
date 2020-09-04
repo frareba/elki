@@ -30,8 +30,6 @@ import elki.distance.NumberVectorDistance;
 import elki.logging.Logging;
 import elki.utilities.documentation.Reference;
 
-import net.jafama.FastMath;
-
 /**
  * Elkan's fast k-means by exploiting the triangle inequality.
  * <p>
@@ -107,6 +105,39 @@ public class ElkanKMeans<V extends NumberVector> extends SimplifiedElkanKMeans<V
     }
 
     @Override
+    protected int initialAssignToNearestCluster() {
+      assert k == means.length;
+      initialSeperation(cdist);
+      for(DBIDIter it = relation.iterDBIDs(); it.valid(); it.advance()) {
+        NumberVector fv = relation.get(it);
+        double[] l = lower.get(it);
+        // Check all (other) means:
+        double best = l[0] = sqrtdistance(fv, means[0]);
+        int minIndex = 0;
+        for(int j = 1; j < k; j++) {
+          if(best > cdist[minIndex][j]) {
+            double dist = l[j] = sqrtdistance(fv, means[j]);
+            if(dist < best) {
+              minIndex = j;
+              best = dist;
+            }
+          }
+        }
+        for(int j = 1; j < k; j++) {
+          if(l[j] == 0. && j != minIndex) {
+            l[j] = 2 * cdist[minIndex][j] - best;
+          }
+        }
+        // Assign to nearest cluster.
+        clusters.get(minIndex).add(it);
+        assignment.putInt(it, minIndex);
+        upper.putDouble(it, best);
+        plusEquals(sums[minIndex], fv);
+      }
+      return relation.size();
+    }
+
+    @Override
     protected int assignToNearestCluster() {
       assert (k == means.length);
       recomputeSeperation(sep, cdist); // #1
@@ -128,16 +159,14 @@ public class ElkanKMeans<V extends NumberVector> extends SimplifiedElkanKMeans<V
             continue; // Condition #3 i-iii not satisfied
           }
           if(recompute_u) { // Need to update bound? #3a
-            u = distance(fv, means[cur]);
-            u = isSquared ? FastMath.sqrt(u) : u;
+            u = sqrtdistance(fv, means[cur]);
             upper.putDouble(it, u);
             recompute_u = false; // Once only
             if(u <= l[j] || u <= cdist[cur][j]) { // #3b
               continue;
             }
           }
-          double dist = distance(fv, means[j]);
-          dist = isSquared ? FastMath.sqrt(dist) : dist;
+          double dist = sqrtdistance(fv, means[j]);
           l[j] = dist;
           if(dist < u) {
             cur = j;

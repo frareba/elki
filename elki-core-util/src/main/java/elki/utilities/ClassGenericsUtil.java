@@ -119,10 +119,10 @@ public final class ClassGenericsUtil {
   /**
    * Method to configure a class, then instantiate when the configuration step
    * was successful.
-   * 
-   * <b>Don't call this directly use unless you know what you are doing. <br />
+   * <p>
+   * <b>Don't call this directly use unless you know what you are doing. <br>
    * Instead, use {@link Parameterization#tryInstantiate(Class)}!</b>
-   * 
+   * <p>
    * Otherwise, {@code null} will be returned, and the resulting errors can be
    * retrieved from the {@link Parameterization} parameter object. In general,
    * you should be checking the {@link Parameterization} object for errors
@@ -156,7 +156,8 @@ public final class ClassGenericsUtil {
    * @param <C> Type
    * @param c Class to instantiate
    * @param config Parameters
-   * @return Instance or throw an AbortException
+   * @return Instance
+   * @throws AbortException on errors
    */
   @SuppressWarnings("unchecked")
   public static <C> C parameterizeOrAbort(Class<?> c, Parameterization config) {
@@ -220,5 +221,23 @@ public final class ClassGenericsUtil {
       }
     }
     throw new AbortException("Cannot find a usable implementation of " + clz.toString(), last);
+  }
+
+  /**
+   * Try to load the default for a particular interface (must have a public
+   * default constructor, used for factories).
+   *
+   * @param <T> Type
+   * @param clz Interface to implement
+   * @param def Name of default implementation
+   * @return Instance
+   */
+  public static <T> T loadDefault(Class<T> clz, String def) {
+    try {
+      return clz.cast(ELKIServiceRegistry.findImplementation(clz, def).newInstance());
+    }
+    catch(Exception e) {
+      return instantiateLowlevel(clz);
+    }
   }
 }

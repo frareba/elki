@@ -23,29 +23,28 @@ package elki.index.tree.spatial.rstarvariants;
 import java.io.IOException;
 import java.io.ObjectInput;
 import java.io.ObjectOutput;
-import java.util.logging.Logger;
 
 import elki.data.HyperBoundingBox;
 import elki.data.ModifiableHyperBoundingBox;
 import elki.data.spatial.SpatialComparable;
 import elki.data.spatial.SpatialUtil;
 import elki.index.tree.AbstractNode;
-import elki.index.tree.Entry;
+import elki.index.tree.Node;
 import elki.index.tree.spatial.SpatialDirectoryEntry;
 import elki.index.tree.spatial.SpatialEntry;
-import elki.index.tree.spatial.SpatialNode;
 import elki.index.tree.spatial.SpatialPointLeafEntry;
-import elki.logging.LoggingConfiguration;
 
 /**
  * Abstract superclass for nodes in a R*-Tree.
  *
  * @author Elke Achtert
+ *
  * @since 0.1
+ *
  * @param <N> Node type
  * @param <E> Entry type
  */
-public abstract class AbstractRStarTreeNode<N extends AbstractRStarTreeNode<N, E>, E extends SpatialEntry> extends AbstractNode<E> implements SpatialNode<N, E> {
+public abstract class AbstractRStarTreeNode<N extends AbstractRStarTreeNode<N, E>, E extends SpatialEntry> extends AbstractNode<E> implements Node<E> {
   /**
    * Empty constructor for Externalizable interface.
    */
@@ -128,10 +127,13 @@ public abstract class AbstractRStarTreeNode<N extends AbstractRStarTreeNode<N, E
   }
 
   /**
-   * Tests this node (for debugging purposes).
+   * Tests this node (public for debugging purposes).
+   *
+   * @param tree Tree context
+   * @return levels below
    */
   @SuppressWarnings("unchecked")
-  public final void integrityCheck(AbstractRStarTree<N, E, ?> tree) {
+  public final int integrityCheck(AbstractRStarTree<N, E, ?> tree) {
     // leaf node
     if(isLeaf()) {
       for(int i = 0; i < getCapacity(); i++) {
@@ -143,38 +145,40 @@ public abstract class AbstractRStarTreeNode<N extends AbstractRStarTreeNode<N, E
           throw new IllegalStateException("i >= numEntries && entry != null");
         }
       }
+      return 0;
     }
     // dir node
-    else {
-      N tmp = tree.getNode(getEntry(0));
-      boolean childIsLeaf = tmp.isLeaf();
-      for(int i = 0; i < getCapacity(); i++) {
-        E e = getEntry(i);
-        if(i < getNumEntries() && e == null) {
-          throw new IllegalStateException("i < numEntries && entry == null");
-        }
-        if(i >= getNumEntries() && e != null) {
-          throw new IllegalStateException("i >= numEntries && entry != null");
-        }
-        if(e != null) {
-          N node = tree.getNode(e);
-          if(childIsLeaf && !node.isLeaf()) {
-            for(int k = 0; k < getNumEntries(); k++) {
-              tree.getNode(getEntry(k));
-            }
-            throw new IllegalStateException("Wrong Child in " + this + " at " + i);
-          }
-          if(!childIsLeaf && node.isLeaf()) {
-            throw new IllegalStateException("Wrong Child: child id no leaf, but node is leaf!");
-          }
-          node.integrityCheckParameters((N) this, i);
-          node.integrityCheck(tree);
-        }
+    N tmp = tree.getNode(getEntry(0));
+    boolean childIsLeaf = tmp.isLeaf();
+    int below = -1;
+    for(int i = 0; i < getCapacity(); i++) {
+      E e = getEntry(i);
+      if(i < getNumEntries() && e == null) {
+        throw new IllegalStateException("i < numEntries && entry == null");
       }
-      if(LoggingConfiguration.DEBUG) {
-        Logger.getLogger(this.getClass().getName()).fine("DirNode " + getPageID() + " ok!");
+      if(i >= getNumEntries() && e != null) {
+        throw new IllegalStateException("i >= numEntries && entry != null");
+      }
+      if(e != null) {
+        N node = tree.getNode(e);
+        if(childIsLeaf && !node.isLeaf()) {
+          for(int k = 0; k < getNumEntries(); k++) {
+            tree.getNode(getEntry(k));
+          }
+          throw new IllegalStateException("Wrong Child in " + this + " at " + i);
+        }
+        if(!childIsLeaf && node.isLeaf()) {
+          throw new IllegalStateException("Wrong Child: child id no leaf, but node is leaf!");
+        }
+        node.integrityCheckParameters((N) this, i);
+        int b = node.integrityCheck(tree);
+        if(below >= 0 && b != below) {
+          throw new IllegalStateException("Tree is not balanced.");
+        }
+        below = b;
       }
     }
+    return below + 1;
   }
 
   /**
@@ -192,9 +196,9 @@ public abstract class AbstractRStarTreeNode<N extends AbstractRStarTreeNode<N, E
       return;
     }
     if(!SpatialUtil.equals(entry, mbr)) {
-      String soll = mbr.toString();
-      String ist = new HyperBoundingBox(entry).toString();
-      throw new IllegalStateException("Wrong MBR in node " + parent.getPageID() + " at index " + index + " (child " + entry + ")" + "\nsoll: " + soll + ",\n ist: " + ist);
+      throw new IllegalStateException("Wrong MBR in node " + parent.getPageID() + //
+          " at index " + index + " (child " + entry + ")" + //
+          "\nsoll: " + mbr.toString() + ",\n ist: " + new HyperBoundingBox(entry).toString());
     }
   }
 
@@ -202,16 +206,17 @@ public abstract class AbstractRStarTreeNode<N extends AbstractRStarTreeNode<N, E
    * Calls the super method and writes the id of this node, the numEntries and
    * the entries array to the specified stream.
    */
+  @SuppressWarnings("unchecked")
   @Override
   public void writeExternal(ObjectOutput out) throws IOException {
     super.writeExternal(out);
     // TODO: do we need to write/read the capacity?
     out.writeInt(entries.length);
-    for(Entry entry : entries) {
+    for(Object entry : entries) {
       if(entry == null) {
         break;
       }
-      entry.writeExternal(out);
+      ((E) entry).writeExternal(out);
     }
   }
 
@@ -225,26 +230,24 @@ public abstract class AbstractRStarTreeNode<N extends AbstractRStarTreeNode<N, E
    *         cannot be found.
    */
   @Override
-  @SuppressWarnings("unchecked")
   public void readExternal(ObjectInput in) throws IOException, ClassNotFoundException {
     super.readExternal(in);
-
     // TODO: do we need to write/read the capacity?
     final int capacity = in.readInt();
     if(isLeaf()) {
-      entries = (E[]) new SpatialPointLeafEntry[capacity];
+      entries = new SpatialPointLeafEntry[capacity];
       for(int i = 0; i < numEntries; i++) {
         SpatialPointLeafEntry s = new SpatialPointLeafEntry();
         s.readExternal(in);
-        entries[i] = (E) s;
+        entries[i] = s;
       }
     }
     else {
-      entries = (E[]) new SpatialDirectoryEntry[capacity];
+      entries = new SpatialDirectoryEntry[capacity];
       for(int i = 0; i < numEntries; i++) {
         SpatialDirectoryEntry s = new SpatialDirectoryEntry();
         s.readExternal(in);
-        entries[i] = (E) s;
+        entries[i] = s;
       }
     }
   }
